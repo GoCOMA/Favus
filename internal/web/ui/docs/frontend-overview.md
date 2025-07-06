@@ -1,11 +1,12 @@
-# 📦 Favus – Frontend Overview
+# Favus – Frontend Overview
 
-## 🏷️ 프로젝트명
+## 프로젝트명
+
 **Favus**
 
 ---
 
-## 🎯 서비스 개요 (프론트엔드 관점)
+## 서비스 개요 (프론트엔드 관점)
 
 **Favus**는 대용량 파일을 Amazon S3에 안정적으로 업로드할 수 있도록 지원하는 웹/CLI 기반 플랫폼입니다.
 
@@ -18,19 +19,18 @@
 
 ---
 
-## 🛠️ 기술 스택
+## 기술 스택
 
 - **Next.js (App Router)**
 - **TypeScript**
 - **Tailwind CSS**
-- **Zustand** – 클라이언트 상태 (업로드 진행률 등)
-- **React Query** (optional) – 서버 상태 polling에 활용
+- **Zustand**
+- **React Query**
 - **ESLint + Prettier**
-- **Husky + commitlint** (optional)
 
 ---
 
-## 📁 디렉토리 구조 (권장)
+## 디렉토리 구조
 
 ```
 /internal/web/ui
@@ -50,47 +50,51 @@
 
 ---
 
-## 💡 구현해야 할 주요 기능
+## 구현해야 할 주요 기능
 
-### 📤 웹 업로드 (`/upload`)
+### 웹 업로드 (`/upload`)
+
 - Drag & Drop 업로드 (`UploadDropzone`)
 - presigned URL 요청 및 청크별 S3 업로드
 - 업로드 상태 시각화 (`UploadProgressBar`)
 - 완료 후 `/status/[id]` 또는 `/result/[id]`로 이동
 
-### 🧾 CLI 업로드 안내 (`/upload/cli`)
+### CLI 업로드 안내 (`/upload/cli`)
+
 - 설치 및 실행 가이드
 - 명령어 복사 버튼 제공
 
-### 📊 업로드 상태 확인 (`/status/[id]`)
+### 업로드 상태 확인 (`/status/[id]`)
+
 - 주기적 polling으로 업로드 상태 표시
 - 오류/재시도 상태 안내
 
-### ✅ 업로드 결과 확인 (`/result/[id]`)
+### 업로드 결과 확인 (`/result/[id]`)
+
 - 업로드 완료 후 S3 링크 및 메타 정보 표시
 
 ---
 
-## 🧠 상태 관리 전략
+## 상태 관리 전략
 
-| 상태 종류 | 도구         | 설명                             |
-|-----------|--------------|----------------------------------|
-| 업로드 진행 | Zustand      | 클라이언트 상태 (파일, 진행률 등) |
-| 상태 조회   | React Query | 서버 상태 fetch 및 polling       |
+| 상태 종류   | 도구        | 설명                              |
+| ----------- | ----------- | --------------------------------- |
+| 업로드 진행 | Zustand     | 클라이언트 상태 (파일, 진행률 등) |
+| 상태 조회   | React Query | 서버 상태 fetch 및 polling        |
 
 ---
 
-## 🔗 API 연동 지점
+## API 연동 지점
 
 | 목적               | 경로 예시                          |
-|--------------------|-----------------------------------|
+| ------------------ | ---------------------------------- |
 | presigned URL 요청 | `POST /api/generate-presigned-url` |
-| 업로드 상태 확인    | `GET /api/status/[id]`              |
-| 업로드 결과 조회    | `GET /api/result/[id]`              |
+| 업로드 상태 확인   | `GET /api/status/[id]`             |
+| 업로드 결과 조회   | `GET /api/result/[id]`             |
 
 ---
 
-## ✅ 초기 개발 체크리스트
+## 초기 개발 체크리스트
 
 - [x] `layout.tsx` 및 페이지 라우팅 구성
 - [x] `/upload/page.tsx` 기본 UI 생성
@@ -102,15 +106,17 @@
 
 ---
 
-## 🧾 커밋 & 브랜치 컨벤션
+## 커밋 & 브랜치 컨벤션
 
-### ✅ 브랜치 규칙
+### 브랜치 규칙
+
 ```
 <type>/<short-description>
 예: feat/upload-ui, chore/setup-eslint
 ```
 
-### ✅ 커밋 메시지 예시
+### 커밋 메시지 예시
+
 ```
 feat: implement UploadDropzone component
 chore: setup Zustand store for upload state
@@ -119,7 +125,7 @@ fix: handle upload resume after failure
 
 ---
 
-## 📈 기대 효과 (프론트엔드 기준)
+## 기대 효과 (프론트엔드 기준)
 
 - 멀티파트 업로드를 **단순 UI로 추상화**
 - 네트워크 오류에도 **Resume 가능**
@@ -128,7 +134,8 @@ fix: handle upload resume after failure
 
 ---
 
-## 📎 공유 및 참고
+## 공유 및 참고
 
 - 이 문서는 `/docs/frontend-overview.md`로 저장되어야 함
 - 다른 팀원이나 계정에서 프로젝트 이해용으로 활용 가능
+- 지속해서 업데이트 필요

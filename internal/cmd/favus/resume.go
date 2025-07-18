@@ -2,6 +2,8 @@ package favus
 
 import (
 	"fmt"
+	"github.com/GoCOMA/Favus/internal/awsutils"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -23,14 +25,25 @@ It checks which parts have already been uploaded and continues the rest.`,
   favus resume --file ./video.mp4 --bucket my-bucket --key uploads/video.mp4 --upload-id xyz123`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if _, err := os.Stat(resumeFilePath); os.IsNotExist(err) {
-			fmt.Printf("File not found: %s\n", resumeFilePath)
+			fmt.Printf(" File not found: %s\n", resumeFilePath)
 			return
 		}
+
+		cfg, err := awsutils.LoadAWSConfig()
+		if err != nil {
+			fmt.Println("AWS credential error:", err)
+			return
+		}
+		s3Client := s3.NewFromConfig(cfg)
+		_ = s3Client //임시로 이렇게 처리해둠. 밑에 로직 성공하면 지우자. (선언만하고 쓰이는데없어서 에러남)
+
 		fmt.Println("🔄 Resuming upload...")
 		fmt.Printf("File: %s\nBucket: %s\nKey: %s\nUploadID: %s\n", resumeFilePath, resumeBucket, resumeKey, uploadID)
 
-		// TODO: 실제 resume 로직 호출
-		fmt.Println("Resume completed (mock)")
+		// TODO: Call resume logic with s3Client
+		// e.g., uploader.ResumeUpload(s3Client, resumeFilePath, resumeBucket, resumeKey, uploadID)
+
+		fmt.Println("✅ Resume completed (mock)")
 	},
 }
 

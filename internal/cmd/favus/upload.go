@@ -3,6 +3,8 @@ package favus
 import (
 	"errors"
 	"fmt"
+	"github.com/GoCOMA/Favus/internal/awsutils"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -30,18 +32,20 @@ Handles chunking, retries, and upload tracking automatically.`,
 			return errors.New("both --bucket and --key must be provided")
 		}
 
-		fmt.Printf("Starting upload...\n")
-		fmt.Printf("File:   %s\n", filePath)
-		fmt.Printf("Bucket: %s\n", bucket)
-		fmt.Printf("Key:    %s\n\n", objectKey)
+		cfg, err := awsutils.LoadAWSConfig()
+		if err != nil {
+			return err
+		}
+		s3Client := s3.NewFromConfig(cfg)
+		_ = s3Client //임시로 이렇게 처리해둠. 밑에 로직 성공하면 지우자. (선언만하고 쓰이는데없어서 에러남)
 
-		// TODO: Replace this with actual logic
-		// chunks := chunker.SplitFile(filePath)
-		// err := uploader.UploadFile(chunks, bucket, objectKey)
+		fmt.Println("📤 Starting upload...")
+		fmt.Printf("File:   %s\nBucket: %s\nKey:    %s\n\n", filePath, bucket, objectKey)
 
-		// Simulate result for now
+		// TODO: Use s3Client to perform actual multipart upload
+		// e.g., uploader.UploadFile(s3Client, filePath, bucket, objectKey)
+
 		fmt.Println("✅ Upload completed successfully (mock)")
-
 		return nil
 	},
 }

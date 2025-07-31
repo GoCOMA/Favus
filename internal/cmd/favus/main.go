@@ -30,8 +30,7 @@ func main() {
 		fmt.Println("Usage: favus <command> [args...]")
 		fmt.Println("Commands:")
 		fmt.Println("  upload <local_file_path> <s3_key>")
-		// Add 'resume' command usage if implemented:
-		// fmt.Println("  resume <status_file_path>")
+		fmt.Println("  resume <status_file_path>")
 		fmt.Println("  delete <s3_key>")
 		fmt.Println("  list-uploads")
 		os.Exit(1)
@@ -52,8 +51,6 @@ func main() {
 		}
 		utils.Info("File uploaded successfully.")
 
-	/*
-	// Uncomment and implement if you want to add a 'resume' command.
 	case "resume":
 		if len(os.Args) != 3 {
 			utils.Fatal("Usage: favus resume <status_file_path>")
@@ -63,7 +60,6 @@ func main() {
 			utils.Fatal("Resume failed: %v", err)
 		}
 		utils.Info("File upload resumed and completed successfully.")
-	*/
 
 	case "delete":
 		if len(os.Args) != 3 {

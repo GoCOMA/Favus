@@ -12,6 +12,7 @@ const DefaultChunkSize = 5 * 1024 * 1024
 
 type Config struct {
 	AWSRegion string
+	S3BucketName string
 	ChunkSize int64
 }
 
@@ -58,13 +59,21 @@ func LoadConfig() (*Config, error) {
 		}
 	}
 
+	// Check if S3_BUCKET_NAME is set in the environment variables
+	S3BucketName := os.Getenv("S3_BUCKET_NAME")
+	if S3BucketName == "" {
+		return nil, fmt.Errorf("S3_BUCKET_NAME environment variable is not set")
+	}
+
 	// Default configuration
 	config := &Config{
 		AWSRegion: "ap-northeast-2", // Default to Seoul region
+		S3BucketName: S3BucketName,
 		ChunkSize: DefaultChunkSize,
 	}
 
 	fmt.Printf("Using AWS Region: %s\n", config.AWSRegion)
+	fmt.Printf("Using S3 Bucket: %s\n", config.S3BucketName)
 	fmt.Printf("Using Chunk Size: %d bytes\n", config.ChunkSize)
 	
 	return config, nil

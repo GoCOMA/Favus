@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { use } from 'react';
-import { getBatchResult, BatchResult, BatchFileItem, startBatchSimulation, stopBatchSimulation } from '@/lib/api';
+import { getBatchResult, BatchResult, BatchFileItem, startBatchSimulation, stopBatchSimulation, initializeMockData } from '@/lib/api';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -21,11 +21,28 @@ export default function ResultPage({ params }: Props) {
   useEffect(() => {
     const fetchBatchResult = async () => {
       try {
+        // 먼저 목데이터 초기화 시도
+        initializeMockData();
+        
+        // 잠시 대기 후 데이터 조회 (초기화 완료 대기)
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         const resultData = await getBatchResult(id);
         setBatchResult(resultData);
         setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : '배치 처리 결과를 가져오는데 실패했습니다.');
+        console.error('배치 결과 조회 실패:', err);
+        
+        // 목데이터가 없는 경우 직접 생성
+        try {
+          console.log('🔄 직접 배치 데이터 생성 시도...');
+          const mockData = createDirectMockData(id);
+          setBatchResult(mockData);
+          setError(null);
+        } catch (directErr) {
+          console.error('직접 데이터 생성도 실패:', directErr);
+          setError('배치 처리 정보를 찾을 수 없습니다. 목데이터를 초기화해주세요.');
+        }
       } finally {
         setLoading(false);
       }
@@ -33,6 +50,51 @@ export default function ResultPage({ params }: Props) {
 
     fetchBatchResult();
   }, [id]);
+
+  // 직접 목데이터 생성 함수
+  const createDirectMockData = (batchId: string): BatchResult => {
+    let totalFiles = 50; // 기본값
+    
+    if (batchId === 'batch1') totalFiles = 300;
+    else if (batchId === 'batch2') totalFiles = 150;
+    else if (batchId === 'batch3') totalFiles = 50;
+    else if (batchId === 'sample1') totalFiles = 100;
+    else if (batchId === 'sample2') totalFiles = 75;
+    else if (batchId === 'sample3') totalFiles = 25;
+    
+    const files: BatchFileItem[] = [];
+    
+    for (let i = 0; i < totalFiles; i++) {
+      const fileId = `${batchId}_file_${i + 1}`;
+      files.push({
+        id: fileId,
+        fileName: `file_${i + 1}.txt`,
+        fileSize: Math.floor(Math.random() * 10 + 1) * 1024 * 1024,
+        status: 'pending',
+        progress: 0,
+      });
+    }
+
+    const now = new Date();
+    return {
+      batchId,
+      totalFiles,
+      completedFiles: 0,
+      failedFiles: 0,
+      pendingFiles: totalFiles,
+      processingFiles: 0,
+      overallStatus: 'pending',
+      overallProgress: 0,
+      files,
+      createdAt: new Date(now.getTime() - 600000).toISOString(),
+      startedAt: new Date(now.getTime() - 300000).toISOString(),
+      metadata: {
+        batchName: `배치 처리 ${batchId}`,
+        description: `${totalFiles}개 파일 처리`,
+        tags: ['batch', 'processing'],
+      },
+    };
+  };
 
   // 실시간 시뮬레이션 시작
   const startSimulation = () => {
@@ -202,12 +264,23 @@ export default function ResultPage({ params }: Props) {
               <div className="text-6xl mb-6">⚠️</div>
               <h1 className="text-3xl font-bold text-gray-900 mb-4">오류 발생</h1>
               <p className="text-gray-600 mb-8 text-lg">{error}</p>
-              <button
-                onClick={() => router.push('/')}
-                className="px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-              >
-                홈으로 돌아가기
-              </button>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                <button
+                  onClick={() => {
+                    initializeMockData();
+                    window.location.reload();
+                  }}
+                  className="px-8 py-3 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                >
+                  목데이터 초기화
+                </button>
+                <button
+                  onClick={() => router.push('/')}
+                  className="px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                >
+                  홈으로 돌아가기
+                </button>
+              </div>
             </div>
           </div>
         </div>

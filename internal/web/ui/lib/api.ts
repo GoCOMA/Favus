@@ -64,12 +64,18 @@ export async function getUploadResult(id: string): Promise<UploadResult> {
 
 // 배치 처리 결과 조회 (목데이터)
 export async function getBatchResult(batchId: string): Promise<BatchResult> {
+  console.log('🔍 getBatchResult 호출됨:', batchId);
+  console.log('📊 현재 mockBatchResults 크기:', mockBatchResults.size);
+  console.log('📋 사용 가능한 배치 IDs:', Array.from(mockBatchResults.keys()));
+  
   const batch = mockBatchResults.get(batchId);
   
   if (!batch) {
+    console.error('❌ 배치를 찾을 수 없음:', batchId);
     throw new Error('배치 처리 정보를 찾을 수 없습니다.');
   }
 
+  console.log('✅ 배치 찾음:', batchId);
   return batch;
 }
 
@@ -194,6 +200,7 @@ export function stopBatchSimulation(batchId: string) {
 
 // 목데이터 초기화 (테스트용)
 export function initializeMockData() {
+  console.log('�� initializeMockData 호출됨');
   // 기존 데이터 초기화
   mockUploads.clear();
   mockBatchResults.clear();
@@ -232,10 +239,19 @@ export function initializeMockData() {
   createMockBatchResult('batch1', 300);
   createMockBatchResult('batch2', 150);
   createMockBatchResult('batch3', 50);
+  
+  // sample 배치도 추가 (기존 코드와의 호환성)
+  createMockBatchResult('sample1', 100);
+  createMockBatchResult('sample2', 75);
+  createMockBatchResult('sample3', 25);
+  
+  console.log('✅ initializeMockData 완료');
 }
 
 // 배치 처리 목데이터 생성 함수
 function createMockBatchResult(batchId: string, totalFiles: number) {
+  console.log('📝 createMockBatchResult 호출됨:', batchId, totalFiles);
+  
   const files: BatchFileItem[] = [];
   const now = new Date();
   
@@ -271,6 +287,8 @@ function createMockBatchResult(batchId: string, totalFiles: number) {
   };
 
   mockBatchResults.set(batchId, batchResult);
+  console.log('✅ 배치 생성 완료:', batchId, '파일 수:', totalFiles);
+  console.log('📊 현재 mockBatchResults 크기:', mockBatchResults.size);
 }
 
 // 랜덤 상태 생성 (더 현실적인 분포)

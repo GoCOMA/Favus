@@ -1,10 +1,9 @@
 'use client';
 
-import { initializeMockData } from '@/lib/api';
-import CliUploadCard from '@/components/CliUploadCard';
-import ResultCard from '@/components/ResultCard';
-import MockDataInitializer from '@/components/MockDataInitializer';
-import FeatureGrid from '@/components/FeatureGrid';
+import CliUploadCard from '@/app/(home)/components/CliUploadCard';
+import ResultCard from '@/app/(home)/components/ResultCard';
+import MockDataInitializer from '@/app/(home)/components/MockDataInitializer';
+import FeatureGrid from '@/app/(home)/components/FeatureGrid';
 
 //홈 화면
 export default function HomePage() {

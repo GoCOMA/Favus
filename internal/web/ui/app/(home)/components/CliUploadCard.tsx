@@ -1,4 +1,4 @@
-import InfoCard from './InfoCard';
+import InfoCard from '../../../components/InfoCard';
 
 export default function CliUploadCard() {
   return (

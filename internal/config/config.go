@@ -1,32 +1,24 @@
 package config
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
-	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 )
 
-func LoadAWSCredentials() (*credentials.Credentials, error) {
-	envCreds := credentials.NewEnvCredentials()
-	_, err := envCreds.Get()
-	if err == nil {
-		fmt.Println("✔ AWS credentials from environment variables")
-		return envCreds, nil
-	}
-
-	homeDir, err := os.UserHomeDir()
+// LoadAWSCredentials loads AWS configuration using SDK v2.
+// It automatically checks environment variables, shared credentials file, and more.
+func LoadAWSCredentials(ctx context.Context) (aws.Config, error) {
+	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user home dir: %w", err)
-	}
-	credFile := filepath.Join(homeDir, ".aws", "credentials")
-	fileCreds := credentials.NewSharedCredentials(credFile, "default")
-	_, err = fileCreds.Get()
-	if err == nil {
-		fmt.Println("AWS credentials from shared credentials file")
-		return fileCreds, nil
+		return aws.Config{}, fmt.Errorf("❌ failed to load AWS config: %w", err)
 	}
 
-	return nil, fmt.Errorf("AWS credentials not found (env or file)")
+	// Just for debugging / confirmation
+	fmt.Println("✔ AWS config loaded (v2)")
+	fmt.Println("AccessKeyID (from credentials):", cfg.Credentials)
+
+	return cfg, nil
 }

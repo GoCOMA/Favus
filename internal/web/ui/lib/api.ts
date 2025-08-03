@@ -1,50 +1,4 @@
-// API 클라이언트 함수들 (결과 조회 전용)
-
-export interface UploadResult {
-  id: string;
-  fileName: string;
-  fileSize: number;
-  contentType: string;
-  s3Url: string;
-  downloadUrl: string;
-  metadata: Record<string, any>;
-  createdAt: string;
-  completedAt: string;
-}
-
-// 배치 처리 결과를 위한 새로운 인터페이스들
-export interface BatchFileItem {
-  id: string;
-  fileName: string;
-  fileSize: number;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  progress: number;
-  error?: string;
-  downloadUrl?: string;
-  s3Url?: string;
-  startedAt?: string;
-  completedAt?: string;
-}
-
-export interface BatchResult {
-  batchId: string;
-  totalFiles: number;
-  completedFiles: number;
-  failedFiles: number;
-  pendingFiles: number;
-  processingFiles: number;
-  overallStatus: 'pending' | 'processing' | 'completed' | 'failed';
-  overallProgress: number;
-  files: BatchFileItem[];
-  createdAt: string;
-  startedAt: string;
-  completedAt?: string;
-  metadata: {
-    batchName?: string;
-    description?: string;
-    tags?: string[];
-  };
-}
+import { BatchFileItem, BatchResult, UploadResult } from './types';
 
 // 목데이터 저장소
 const mockUploads = new Map<string, { result: UploadResult }>();
@@ -54,57 +8,55 @@ const activeSimulations = new Map<string, NodeJS.Timeout>();
 // 업로드 결과 조회 (목데이터)
 export async function getUploadResult(id: string): Promise<UploadResult> {
   const upload = mockUploads.get(id);
-  
   if (!upload) {
     throw new Error('업로드 정보를 찾을 수 없습니다.');
   }
-
   return upload.result;
 }
 
 // 배치 처리 결과 조회 (목데이터)
 export async function getBatchResult(batchId: string): Promise<BatchResult> {
-  console.log('🔍 getBatchResult 호출됨:', batchId);
-  console.log('📊 현재 mockBatchResults 크기:', mockBatchResults.size);
-  console.log('📋 사용 가능한 배치 IDs:', Array.from(mockBatchResults.keys()));
-  
+  // console.log('🔍 getBatchResult 호출됨:', batchId);
+  // console.log('📊 현재 mockBatchResults 크기:', mockBatchResults.size);
+  // console.log('📋 사용 가능한 배치 IDs:', Array.from(mockBatchResults.keys()));
   const batch = mockBatchResults.get(batchId);
-  
   if (!batch) {
-    console.error('❌ 배치를 찾을 수 없음:', batchId);
+    // console.error('❌ 배치를 찾을 수 없음:', batchId);
     throw new Error('배치 처리 정보를 찾을 수 없습니다.');
   }
-
-  console.log('✅ 배치 찾음:', batchId);
+  // console.log('✅ 배치 찾음:', batchId);
   return batch;
 }
 
 // 실시간 배치 처리 시뮬레이션 시작
-export function startBatchSimulation(batchId: string, onUpdate?: (result: BatchResult) => void) {
+export function startBatchSimulation(
+  batchId: string,
+  onUpdate?: (result: BatchResult) => void,
+) {
   const batch = mockBatchResults.get(batchId);
   if (!batch) return;
 
   // 기존 시뮬레이션 중지
   stopBatchSimulation(batchId);
-
+  resetBatchFiles(batch);
   // 모든 파일을 pending 상태로 초기화
-  batch.files.forEach(file => {
-    file.status = 'pending';
-    file.progress = 0;
-    file.startedAt = undefined;
-    file.completedAt = undefined;
-    file.error = undefined;
-    file.downloadUrl = undefined;
-    file.s3Url = undefined;
-  });
+  // batch.files.forEach((file) => {
+  //   file.status = 'pending';
+  //   file.progress = 0;
+  //   file.startedAt = undefined;
+  //   file.completedAt = undefined;
+  //   file.error = undefined;
+  //   file.downloadUrl = undefined;
+  //   file.s3Url = undefined;
+  // });
 
-  batch.overallStatus = 'pending';
-  batch.overallProgress = 0;
-  batch.completedFiles = 0;
-  batch.failedFiles = 0;
-  batch.pendingFiles = batch.totalFiles;
-  batch.processingFiles = 0;
-  batch.completedAt = undefined;
+  // batch.overallStatus = 'pending';
+  // batch.overallProgress = 0;
+  // batch.completedFiles = 0;
+  // batch.failedFiles = 0;
+  // batch.pendingFiles = batch.totalFiles;
+  // batch.processingFiles = 0;
+  // batch.completedAt = undefined;
 
   let currentFileIndex = 0;
   let processingCount = 0;
@@ -128,7 +80,7 @@ export function startBatchSimulation(batchId: string, onUpdate?: (result: BatchR
     }
 
     const file = batch.files[currentFileIndex];
-    currentFileIndex++;
+    // currentFileIndex++;
     processingCount++;
 
     // 파일 처리 시작
@@ -142,15 +94,15 @@ export function startBatchSimulation(batchId: string, onUpdate?: (result: BatchR
     // 진행률 시뮬레이션
     const progressInterval = setInterval(() => {
       file.progress += Math.random() * 15 + 5; // 5-20%씩 증가
-      
+
       if (file.progress >= 100) {
         file.progress = 100;
         clearInterval(progressInterval);
-        
+
         // 파일 완료 처리
         setTimeout(() => {
           const shouldFail = Math.random() < 0.05; // 5% 확률로 실패
-          
+
           if (shouldFail) {
             file.status = 'failed';
             file.error = '처리 중 오류가 발생했습니다.';
@@ -161,17 +113,19 @@ export function startBatchSimulation(batchId: string, onUpdate?: (result: BatchR
             file.s3Url = `https://mock-s3.amazonaws.com/bucket/uploads/${file.id}`;
             batch.completedFiles++;
           }
-          
+
           file.completedAt = new Date().toISOString();
           batch.processingFiles--;
           processingCount--;
-          
+
           // 전체 진행률 업데이트
-          batch.overallProgress = ((batch.completedFiles + batch.failedFiles) / batch.totalFiles) * 100;
-          
+          batch.overallProgress =
+            ((batch.completedFiles + batch.failedFiles) / batch.totalFiles) *
+            100;
+
           // 콜백 호출
           onUpdate?.(batch);
-          
+
           // 다음 파일 처리
           setTimeout(processNextFile, 500);
         }, 200);
@@ -186,7 +140,10 @@ export function startBatchSimulation(batchId: string, onUpdate?: (result: BatchR
   setTimeout(processNextFile, 1000);
 
   // 시뮬레이션 ID 저장
-  activeSimulations.set(batchId, setTimeout(() => {}, 0)); // 더미 타이머
+  activeSimulations.set(
+    batchId,
+    setTimeout(() => {}, 0),
+  ); // 더미 타이머
 }
 
 // 배치 시뮬레이션 중지
@@ -200,19 +157,19 @@ export function stopBatchSimulation(batchId: string) {
 
 // 목데이터 초기화 (테스트용)
 export function initializeMockData() {
-  console.log('�� initializeMockData 호출됨');
+  // console.log('�� initializeMockData 호출됨');
   // 기존 데이터 초기화
   mockUploads.clear();
   mockBatchResults.clear();
-  
+
   // 기존 시뮬레이션 중지
   activeSimulations.forEach((_, batchId) => {
     stopBatchSimulation(batchId);
   });
-  
+
   // 단일 파일 샘플 데이터 추가
   const sampleIds = ['sample1', 'sample2', 'sample3'];
-  
+
   sampleIds.forEach((id, index) => {
     const result: UploadResult = {
       id,
@@ -231,7 +188,7 @@ export function initializeMockData() {
       createdAt: new Date(Date.now() - (index + 1) * 60000).toISOString(),
       completedAt: new Date(Date.now() - index * 60000).toISOString(),
     };
-    
+
     mockUploads.set(id, { result });
   });
 
@@ -239,34 +196,50 @@ export function initializeMockData() {
   createMockBatchResult('batch1', 300);
   createMockBatchResult('batch2', 150);
   createMockBatchResult('batch3', 50);
-  
+
   // sample 배치도 추가 (기존 코드와의 호환성)
   createMockBatchResult('sample1', 100);
   createMockBatchResult('sample2', 75);
   createMockBatchResult('sample3', 25);
-  
-  console.log('✅ initializeMockData 완료');
+
+  // console.log('✅ initializeMockData 완료');
+}
+
+function resetBatchFiles(batch: BatchResult) {
+  batch.files.forEach((file) => {
+    file.status = 'pending';
+    file.progress = 0;
+    file.startedAt = undefined;
+    file.completedAt = undefined;
+    file.error = undefined;
+    file.downloadUrl = undefined;
+    file.s3Url = undefined;
+  });
+
+  batch.overallStatus = 'pending';
+  batch.overallProgress = 0;
+  batch.completedFiles = 0;
+  batch.failedFiles = 0;
+  batch.pendingFiles = batch.totalFiles;
+  batch.processingFiles = 0;
+  batch.completedAt = undefined;
 }
 
 // 배치 처리 목데이터 생성 함수
 function createMockBatchResult(batchId: string, totalFiles: number) {
-  console.log('📝 createMockBatchResult 호출됨:', batchId, totalFiles);
-  
-  const files: BatchFileItem[] = [];
-  const now = new Date();
-  
-  for (let i = 0; i < totalFiles; i++) {
-    const fileId = `${batchId}_file_${i + 1}`;
-    
-    files.push({
-      id: fileId,
+  // console.log('📝 createMockBatchResult 호출됨:', batchId, totalFiles);
+
+  const files: BatchFileItem[] = Array.from({ length: totalFiles }).map(
+    (_, i) => ({
+      id: `${batchId}_file_${i + 1}`,
       fileName: `file_${i + 1}.txt`,
       fileSize: Math.floor(Math.random() * 10 + 1) * 1024 * 1024, // 1-10MB
       status: 'pending',
       progress: 0,
-    });
-  }
+    }),
+  );
 
+  const now = new Date();
   const batchResult: BatchResult = {
     batchId,
     totalFiles,
@@ -287,21 +260,24 @@ function createMockBatchResult(batchId: string, totalFiles: number) {
   };
 
   mockBatchResults.set(batchId, batchResult);
-  console.log('✅ 배치 생성 완료:', batchId, '파일 수:', totalFiles);
-  console.log('📊 현재 mockBatchResults 크기:', mockBatchResults.size);
+  // console.log('✅ 배치 생성 완료:', batchId, '파일 수:', totalFiles);
+  // console.log('📊 현재 mockBatchResults 크기:', mockBatchResults.size);
 }
 
 // 랜덤 상태 생성 (더 현실적인 분포)
-function getRandomStatus(index: number, total: number): 'pending' | 'processing' | 'completed' | 'failed' {
-  const progress = index / total;
-  
-  if (progress < 0.7) {
-    return 'completed';
-  } else if (progress < 0.85) {
-    return 'processing';
-  } else if (progress < 0.95) {
-    return 'pending';
-  } else {
-    return 'failed';
-  }
-} 
+// function getRandomStatus(
+//   index: number,
+//   total: number,
+// ): 'pending' | 'processing' | 'completed' | 'failed' {
+//   const progress = index / total;
+
+//   if (progress < 0.7) {
+//     return 'completed';
+//   } else if (progress < 0.85) {
+//     return 'processing';
+//   } else if (progress < 0.95) {
+//     return 'pending';
+//   } else {
+//     return 'failed';
+//   }
+// }

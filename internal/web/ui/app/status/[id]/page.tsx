@@ -37,7 +37,11 @@ export default function StatusPage({ params }: Props) {
           return;
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : '상태를 가져오는데 실패했습니다.');
+        setError(
+          err instanceof Error
+            ? err.message
+            : '상태를 가져오는데 실패했습니다.',
+        );
       } finally {
         setLoading(false);
       }
@@ -48,7 +52,10 @@ export default function StatusPage({ params }: Props) {
 
     // 2초마다 상태 업데이트 (pending, uploading, processing 상태일 때만)
     intervalId = setInterval(() => {
-      if (status && ['pending', 'uploading', 'processing'].includes(status.status)) {
+      if (
+        status &&
+        ['pending', 'uploading', 'processing'].includes(status.status)
+      ) {
         fetchStatus();
       }
     }, 2000);
@@ -116,7 +123,9 @@ export default function StatusPage({ params }: Props) {
           <div className="bg-white rounded-lg shadow-sm p-8">
             <div className="text-center">
               <div className="text-red-500 text-6xl mb-4">⚠️</div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">오류 발생</h1>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                오류 발생
+              </h1>
               <p className="text-gray-600 mb-6">{error}</p>
               <div className="space-y-3">
                 <button
@@ -146,10 +155,10 @@ export default function StatusPage({ params }: Props) {
           <div className="bg-white rounded-lg shadow-sm p-8">
             <div className="text-center">
               <div className="text-gray-400 text-6xl mb-4">🔍</div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">업로드 정보를 찾을 수 없습니다</h1>
-              <p className="text-gray-600 mb-6">
-                ID: {params.id}
-              </p>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                업로드 정보를 찾을 수 없습니다
+              </h1>
+              <p className="text-gray-600 mb-6">ID: {params.id}</p>
               <div className="space-y-3">
                 <button
                   onClick={() => router.push('/upload')}
@@ -176,13 +185,17 @@ export default function StatusPage({ params }: Props) {
       <div className="max-w-2xl mx-auto px-4">
         <div className="bg-white rounded-lg shadow-sm p-8">
           <div className="mb-6">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">업로드 상태</h1>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              업로드 상태
+            </h1>
             <p className="text-gray-600">ID: {status.id}</p>
           </div>
 
           {/* 상태 표시 */}
           <div className="mb-6">
-            <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(status.status)}`}>
+            <div
+              className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(status.status)}`}
+            >
               {getStatusText(status.status)}
             </div>
           </div>
@@ -211,14 +224,18 @@ export default function StatusPage({ params }: Props) {
           {/* 재시도 정보 */}
           {status.retryCount !== undefined && status.retryCount > 0 && (
             <div className="mb-6 p-4 bg-yellow-50 rounded-lg">
-              <p className="text-yellow-800">재시도 횟수: {status.retryCount}회</p>
+              <p className="text-yellow-800">
+                재시도 횟수: {status.retryCount}회
+              </p>
             </div>
           )}
 
           {/* 시간 정보 */}
           <div className="text-sm text-gray-500 space-y-1">
             <p>생성 시간: {new Date(status.createdAt).toLocaleString()}</p>
-            <p>마지막 업데이트: {new Date(status.updatedAt).toLocaleString()}</p>
+            <p>
+              마지막 업데이트: {new Date(status.updatedAt).toLocaleString()}
+            </p>
           </div>
 
           {/* 실시간 업데이트 표시 */}
@@ -226,9 +243,13 @@ export default function StatusPage({ params }: Props) {
             <div className="mt-6 p-4 bg-green-50 rounded-lg">
               <div className="flex items-center">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600 mr-2"></div>
-                <span className="text-green-800 text-sm">실시간으로 업데이트 중...</span>
+                <span className="text-green-800 text-sm">
+                  실시간으로 업데이트 중...
+                </span>
               </div>
-              <p className="text-xs text-green-600 mt-1">(목데이터 시뮬레이션)</p>
+              <p className="text-xs text-green-600 mt-1">
+                (목데이터 시뮬레이션)
+              </p>
             </div>
           )}
 
@@ -237,7 +258,9 @@ export default function StatusPage({ params }: Props) {
             <div className="mt-6 p-4 bg-green-50 rounded-lg">
               <div className="flex items-center">
                 <div className="text-green-600 text-xl mr-2">✅</div>
-                <span className="text-green-800 text-sm">업로드 완료! 결과 페이지로 이동 중...</span>
+                <span className="text-green-800 text-sm">
+                  업로드 완료! 결과 페이지로 이동 중...
+                </span>
               </div>
             </div>
           )}

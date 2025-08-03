@@ -1,6 +1,6 @@
 'use client';
 
-import { BatchResult } from '@/lib/api';
+import { BatchResult } from '@/lib/types';
 import { getStatusColor, getStatusText } from '@/lib/utils';
 
 interface HeaderSectionProps {

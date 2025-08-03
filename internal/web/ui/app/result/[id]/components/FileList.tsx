@@ -1,6 +1,6 @@
 'use client';
 
-import { BatchResult, BatchFileItem } from '@/lib/api';
+import { BatchResult, BatchFileItem } from '@/lib/types';
 import {
   getFileIcon,
   getStatusColor,

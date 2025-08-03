@@ -7,9 +7,8 @@ import {
   startBatchSimulation,
   stopBatchSimulation,
   initializeMockData,
-  BatchResult,
-  BatchFileItem,
 } from '@/lib/api';
+import { BatchResult, BatchFileItem } from '@/lib/types';
 import { HeaderSection } from './components/HeaderSection';
 import { SummarySection } from './components/SummarySection';
 import { FileList } from './components/FileList';

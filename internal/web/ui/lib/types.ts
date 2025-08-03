@@ -43,3 +43,14 @@ export interface BatchResult {
     tags?: string[];
   };
 }
+
+export interface UploadStatus {
+  id: string;
+  status: 'pending' | 'uploading' | 'processing' | 'completed' | 'failed';
+  progress: number;
+  message?: string;
+  retryCount?: number;
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+}

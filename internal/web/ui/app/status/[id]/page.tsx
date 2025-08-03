@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getUploadStatus, UploadStatus } from '@/lib/api';
+import { getUploadStatus } from '@/lib/api/uploadApi';
+import type { UploadStatus } from '@/lib/types';
+import { getStatusColor, getStatusText } from '@/lib/utils';
+import { StatusProgressBar } from './components/StatusProgressBar';
+import { StatusMessageBox } from './components/StatusMessageBox';
+import { StatusSpinner } from './components/StatusSpinner';
 
 interface Props {
   params: { id: string };
@@ -13,27 +18,22 @@ export default function StatusPage({ params }: Props) {
   const [status, setStatus] = useState<UploadStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-
+  let intervalId: NodeJS.Timeout;
   useEffect(() => {
-    let intervalId: NodeJS.Timeout;
-
-    const fetchStatus = async () => {
+    const fetchInitial = async () => {
       try {
-        const statusData = await getUploadStatus(params.id);
-        setStatus(statusData);
-        setError(null);
-
+        const res = await getUploadStatus(params.id);
+        setStatus(res);
         // 업로드가 완료되면 결과 페이지로 이동
-        if (statusData.status === 'completed') {
+        if (res.status === 'completed') {
           setTimeout(() => {
             router.push(`/result/${params.id}`);
           }, 1000); // 1초 후 결과 페이지로 이동
           return;
         }
-
         // 업로드가 실패하면 에러 표시
-        if (statusData.status === 'failed') {
-          setError(statusData.error || '업로드에 실패했습니다.');
+        else if (res.status === 'failed') {
+          setError(res.error || '업로드에 실패했습니다.');
           return;
         }
       } catch (err) {
@@ -48,57 +48,22 @@ export default function StatusPage({ params }: Props) {
     };
 
     // 초기 로드
-    fetchStatus();
+    fetchInitial();
+  }, [params.id, router]);
 
+  useEffect(() => {
+    if (
+      !status ||
+      !['pending', 'uploading', 'processing'].includes(status.status)
+    )
+      return;
     // 2초마다 상태 업데이트 (pending, uploading, processing 상태일 때만)
-    intervalId = setInterval(() => {
-      if (
-        status &&
-        ['pending', 'uploading', 'processing'].includes(status.status)
-      ) {
-        fetchStatus();
-      }
+    const interval = setInterval(() => {
+      getUploadStatus(params.id).then(setStatus).catch(console.error);
     }, 2000);
 
-    return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
-    };
-  }, [params.id, router, status?.status]);
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return '대기 중';
-      case 'uploading':
-        return '업로드 중';
-      case 'processing':
-        return '처리 중';
-      case 'completed':
-        return '완료';
-      case 'failed':
-        return '실패';
-      default:
-        return '알 수 없음';
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return 'text-yellow-600 bg-yellow-100';
-      case 'uploading':
-      case 'processing':
-        return 'text-blue-600 bg-blue-100';
-      case 'completed':
-        return 'text-green-600 bg-green-100';
-      case 'failed':
-        return 'text-red-600 bg-red-100';
-      default:
-        return 'text-gray-600 bg-gray-100';
-    }
-  };
+    return () => clearInterval(interval);
+  }, [status?.status, params.id]);
 
   if (loading) {
     return (
@@ -201,34 +166,13 @@ export default function StatusPage({ params }: Props) {
           </div>
 
           {/* 진행률 바 */}
-          <div className="mb-6">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium text-gray-700">진행률</span>
-              <span className="text-sm text-gray-500">{status.progress}%</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${status.progress}%` }}
-              ></div>
-            </div>
-          </div>
+          <StatusProgressBar progress={status.progress} />
 
           {/* 메시지 */}
-          {status.message && (
-            <div className="mb-6 p-4 bg-blue-50 rounded-lg">
-              <p className="text-blue-800">{status.message}</p>
-            </div>
-          )}
-
-          {/* 재시도 정보 */}
-          {status.retryCount !== undefined && status.retryCount > 0 && (
-            <div className="mb-6 p-4 bg-yellow-50 rounded-lg">
-              <p className="text-yellow-800">
-                재시도 횟수: {status.retryCount}회
-              </p>
-            </div>
-          )}
+          <StatusMessageBox
+            message={status.message}
+            retryCount={status.retryCount}
+          />
 
           {/* 시간 정보 */}
           <div className="text-sm text-gray-500 space-y-1">
@@ -240,17 +184,7 @@ export default function StatusPage({ params }: Props) {
 
           {/* 실시간 업데이트 표시 */}
           {['pending', 'uploading', 'processing'].includes(status.status) && (
-            <div className="mt-6 p-4 bg-green-50 rounded-lg">
-              <div className="flex items-center">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600 mr-2"></div>
-                <span className="text-green-800 text-sm">
-                  실시간으로 업데이트 중...
-                </span>
-              </div>
-              <p className="text-xs text-green-600 mt-1">
-                (목데이터 시뮬레이션)
-              </p>
-            </div>
+            <StatusSpinner />
           )}
 
           {/* 완료 대기 중 */}

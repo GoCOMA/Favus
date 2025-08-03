@@ -16,6 +16,7 @@ import { FileDetail } from './components/FileDetail';
 import { TimeInfo } from './components/TimeInfo';
 import { ErrorFallback } from './components/ErrorFallback';
 import { LoadingFallback } from './components/LoadingFallback';
+import { BatchErrorFallback } from './components/BatchErrorFallback';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -25,9 +26,9 @@ export default function ResultPage({ params }: Props) {
   const router = useRouter();
   const { id } = use(params);
   const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
-  const [selectedFile, setSelectedFile] = useState<BatchFileItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedFile, setSelectedFile] = useState<BatchFileItem | null>(null);
   const [isSimulationRunning, setIsSimulationRunning] = useState(false);
 
   useEffect(() => {
@@ -37,10 +38,12 @@ export default function ResultPage({ params }: Props) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         const resultData = await getBatchResult(id);
         setBatchResult(resultData);
+        setError(null);
       } catch (err) {
         try {
           const mockData = createDirectMockData(id);
           setBatchResult(mockData);
+          setError(null);
         } catch (directErr) {
           setError(
             '배치 처리 정보를 찾을 수 없습니다. 목데이터를 초기화해주세요.',
@@ -55,6 +58,7 @@ export default function ResultPage({ params }: Props) {
 
   const createDirectMockData = (batchId: string): BatchResult => {
     let totalFiles = 50;
+
     if (batchId === 'batch1') totalFiles = 300;
     else if (batchId === 'batch2') totalFiles = 150;
     else if (batchId === 'batch3') totalFiles = 50;
@@ -62,15 +66,19 @@ export default function ResultPage({ params }: Props) {
     else if (batchId === 'sample2') totalFiles = 75;
     else if (batchId === 'sample3') totalFiles = 25;
 
-    const files: BatchFileItem[] = Array.from({ length: totalFiles }).map(
-      (_, i) => ({
-        id: `${batchId}_file_${i + 1}`,
+    const files: BatchFileItem[] = [];
+
+    for (let i = 0; i < totalFiles; i++) {
+      const fileId = `${batchId}_file_${i + 1}`;
+      files.push({
+        id: fileId,
         fileName: `file_${i + 1}.txt`,
         fileSize: Math.floor(Math.random() * 10 + 1) * 1024 * 1024,
         status: 'pending',
         progress: 0,
-      }),
-    );
+      });
+      console.log(fileId);
+    }
 
     const now = new Date();
     return {
@@ -95,9 +103,11 @@ export default function ResultPage({ params }: Props) {
 
   const startSimulation = () => {
     if (!batchResult || isSimulationRunning) return;
+
     setIsSimulationRunning(true);
     startBatchSimulation(id, (updatedResult) => {
       setBatchResult({ ...updatedResult });
+
       if (updatedResult.overallStatus === 'completed') {
         setIsSimulationRunning(false);
       }
@@ -117,8 +127,7 @@ export default function ResultPage({ params }: Props) {
 
   if (loading) return <LoadingFallback />;
   if (error) return <ErrorFallback error={error} id={id} router={router} />;
-  if (!batchResult)
-    return <ErrorFallback error="결과 없음" id={id} router={router} />;
+  if (!batchResult) return <BatchErrorFallback id={id} router={router} />;
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">

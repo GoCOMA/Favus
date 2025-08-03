@@ -80,7 +80,7 @@ export function startBatchSimulation(
     }
 
     const file = batch.files[currentFileIndex];
-    // currentFileIndex++;
+    currentFileIndex++;
     processingCount++;
 
     // 파일 처리 시작

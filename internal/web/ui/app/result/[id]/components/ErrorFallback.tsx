@@ -1,5 +1,6 @@
 'use client';
 
+import { initializeMockData } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 
 export function ErrorFallback({
@@ -22,6 +23,7 @@ export function ErrorFallback({
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
               <button
                 onClick={() => {
+                  initializeMockData();
                   window.location.reload();
                 }}
                 className="px-8 py-3 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"

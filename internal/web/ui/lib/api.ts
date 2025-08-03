@@ -16,15 +16,10 @@ export async function getUploadResult(id: string): Promise<UploadResult> {
 
 // 배치 처리 결과 조회 (목데이터)
 export async function getBatchResult(batchId: string): Promise<BatchResult> {
-  // console.log('🔍 getBatchResult 호출됨:', batchId);
-  // console.log('📊 현재 mockBatchResults 크기:', mockBatchResults.size);
-  // console.log('📋 사용 가능한 배치 IDs:', Array.from(mockBatchResults.keys()));
   const batch = mockBatchResults.get(batchId);
   if (!batch) {
-    // console.error('❌ 배치를 찾을 수 없음:', batchId);
     throw new Error('배치 처리 정보를 찾을 수 없습니다.');
   }
-  // console.log('✅ 배치 찾음:', batchId);
   return batch;
 }
 
@@ -39,24 +34,6 @@ export function startBatchSimulation(
   // 기존 시뮬레이션 중지
   stopBatchSimulation(batchId);
   resetBatchFiles(batch);
-  // 모든 파일을 pending 상태로 초기화
-  // batch.files.forEach((file) => {
-  //   file.status = 'pending';
-  //   file.progress = 0;
-  //   file.startedAt = undefined;
-  //   file.completedAt = undefined;
-  //   file.error = undefined;
-  //   file.downloadUrl = undefined;
-  //   file.s3Url = undefined;
-  // });
-
-  // batch.overallStatus = 'pending';
-  // batch.overallProgress = 0;
-  // batch.completedFiles = 0;
-  // batch.failedFiles = 0;
-  // batch.pendingFiles = batch.totalFiles;
-  // batch.processingFiles = 0;
-  // batch.completedAt = undefined;
 
   let currentFileIndex = 0;
   let processingCount = 0;
@@ -227,8 +204,6 @@ function resetBatchFiles(batch: BatchResult) {
 
 // 배치 처리 목데이터 생성 함수
 function createMockBatchResult(batchId: string, totalFiles: number) {
-  // console.log('📝 createMockBatchResult 호출됨:', batchId, totalFiles);
-
   const files: BatchFileItem[] = Array.from({ length: totalFiles }).map(
     (_, i) => ({
       id: `${batchId}_file_${i + 1}`,
@@ -260,8 +235,6 @@ function createMockBatchResult(batchId: string, totalFiles: number) {
   };
 
   mockBatchResults.set(batchId, batchResult);
-  // console.log('✅ 배치 생성 완료:', batchId, '파일 수:', totalFiles);
-  // console.log('📊 현재 mockBatchResults 크기:', mockBatchResults.size);
 }
 
 // 랜덤 상태 생성 (더 현실적인 분포)

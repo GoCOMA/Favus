@@ -3,7 +3,7 @@
 import { initializeMockData } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 
-export function ErrorFallback({
+export function BatchErrorFallback({
   id,
   router,
 }: {

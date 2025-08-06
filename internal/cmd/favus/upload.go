@@ -1,11 +1,12 @@
 package favus
 
 import (
-	"errors"
+	"bufio"
 	"fmt"
 	"github.com/GoCOMA/Favus/internal/awsutils"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -25,26 +26,46 @@ Handles chunking, retries, and upload tracking automatically.`,
 	Example: `
   favus upload --file ./bigfile.mp4 --bucket my-bucket --key uploads/bigfile.mp4`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			return fmt.Errorf("file not found: %s", filePath)
-		}
-		if bucket == "" || objectKey == "" {
-			return errors.New("both --bucket and --key must be provided")
-		}
-
-		cfg, err := awsutils.LoadAWSConfig()
+		// 1. AWS 인증 (인증 없으면 내부에서 프롬프트)
+		cfg, err := awsutils.LoadAWSConfig(profile)
 		if err != nil {
 			return err
 		}
+
+		// 2. config.yaml 우선 적용 (있다면)
+		conf := GetLoadedConfig()
+		if bucket == "" && conf != nil {
+			bucket = conf.Bucket
+		}
+		if objectKey == "" && conf != nil {
+			objectKey = conf.Key
+		}
+
+		// 3. 누락된 값에 대해 프롬프트
+		reader := bufio.NewReader(os.Stdin)
+		if bucket == "" {
+			fmt.Print("🔧 Enter S3 bucket name: ")
+			input, _ := reader.ReadString('\n')
+			bucket = strings.TrimSpace(input)
+		}
+		if objectKey == "" {
+			fmt.Print("📝 Enter S3 object key: ")
+			input, _ := reader.ReadString('\n')
+			objectKey = strings.TrimSpace(input)
+		}
+
+		// 4. 파일 존재 여부 체크
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			return fmt.Errorf("file not found: %s", filePath)
+		}
+
+		// 5. 실행 로그
+		fmt.Printf("✅ Final values → file: %s, bucket: %s, key: %s\n", filePath, bucket, objectKey)
+
+		// 6. 업로드 로직 (mock)
 		s3Client := s3.NewFromConfig(cfg)
-		_ = s3Client //임시로 이렇게 처리해둠. 밑에 로직 성공하면 지우자. (선언만하고 쓰이는데없어서 에러남)
-
+		_ = s3Client
 		fmt.Println("📤 Starting upload...")
-		fmt.Printf("File:   %s\nBucket: %s\nKey:    %s\n\n", filePath, bucket, objectKey)
-
-		// TODO: Use s3Client to perform actual multipart upload
-		// e.g., uploader.UploadFile(s3Client, filePath, bucket, objectKey)
-
 		fmt.Println("✅ Upload completed successfully (mock)")
 		return nil
 	},
@@ -56,8 +77,6 @@ func init() {
 	uploadCmd.Flags().StringVarP(&objectKey, "key", "k", "", "S3 object key (required)")
 
 	uploadCmd.MarkFlagRequired("file")
-	uploadCmd.MarkFlagRequired("bucket")
-	uploadCmd.MarkFlagRequired("key")
 
 	rootCmd.AddCommand(uploadCmd)
 }

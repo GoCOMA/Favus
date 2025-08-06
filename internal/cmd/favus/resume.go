@@ -1,10 +1,12 @@
 package favus
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/GoCOMA/Favus/internal/awsutils"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -16,47 +18,79 @@ var (
 	uploadID       string
 )
 
+func promptInput(prompt string) string {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("%s: ", prompt)
+	input, _ := reader.ReadString('\n')
+	return strings.TrimSpace(input)
+}
+
 var resumeCmd = &cobra.Command{
 	Use:   "resume",
 	Short: "Resume an interrupted multipart upload to S3",
-	Long: `Favus resume allows you to continue a previously interrupted multipart upload using an upload ID.
-It checks which parts have already been uploaded and continues the rest.`,
+	Long: `Resume an S3 multipart upload using a previously initiated Upload ID.
+Use this command when an upload was interrupted and you want to continue from where it left off.`,
 	Example: `
-  favus resume --file ./video.mp4 --bucket my-bucket --key uploads/video.mp4 --upload-id xyz123`,
-	Run: func(cmd *cobra.Command, args []string) {
-		if _, err := os.Stat(resumeFilePath); os.IsNotExist(err) {
-			fmt.Printf(" File not found: %s\n", resumeFilePath)
-			return
-		}
-
-		cfg, err := awsutils.LoadAWSConfig()
+  favus resume --file ./video.mp4 --bucket my-bucket --key uploads/video.mp4 --upload-id ABC123XYZ
+  favus resume --file ./video.mp4 --upload-id ABC123XYZ --config config.yaml`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// ✅ 1. 인증 먼저
+		cfg, err := awsutils.LoadAWSConfig(profile)
 		if err != nil {
-			fmt.Println("AWS credential error:", err)
-			return
+			return err
 		}
+
+		// ✅ 2. config.yaml 우선 적용
+		conf := GetLoadedConfig()
+		if resumeBucket == "" && conf != nil {
+			resumeBucket = conf.Bucket
+		}
+		if resumeKey == "" && conf != nil {
+			resumeKey = conf.Key
+		}
+		if uploadID == "" && conf != nil {
+			uploadID = conf.UploadID
+		}
+
+		// ✅ 3. 누락된 값만 프롬프트
+		if resumeBucket == "" {
+			resumeBucket = promptInput("🔧 Enter S3 bucket name")
+		}
+		if resumeKey == "" {
+			resumeKey = promptInput("📝 Enter S3 object key")
+		}
+		if uploadID == "" {
+			uploadID = promptInput("🔁 Enter Upload ID")
+		}
+
+		// ✅ 4. 로컬 파일 체크
+		if _, err := os.Stat(resumeFilePath); os.IsNotExist(err) {
+			return fmt.Errorf("❌ file not found: %s", resumeFilePath)
+		}
+
+		// ✅ 5. 최종 정보 출력
+		fmt.Println("✅ Final values:")
+		fmt.Printf("File     : %s\n", resumeFilePath)
+		fmt.Printf("Bucket   : %s\n", resumeBucket)
+		fmt.Printf("Key      : %s\n", resumeKey)
+		fmt.Printf("UploadID : %s\n", uploadID)
+
+		// ✅ 6. 업로드 재개 (모의)
 		s3Client := s3.NewFromConfig(cfg)
-		_ = s3Client //임시로 이렇게 처리해둠. 밑에 로직 성공하면 지우자. (선언만하고 쓰이는데없어서 에러남)
-
-		fmt.Println("🔄 Resuming upload...")
-		fmt.Printf("File: %s\nBucket: %s\nKey: %s\nUploadID: %s\n", resumeFilePath, resumeBucket, resumeKey, uploadID)
-
-		// TODO: Call resume logic with s3Client
-		// e.g., uploader.ResumeUpload(s3Client, resumeFilePath, resumeBucket, resumeKey, uploadID)
-
+		_ = s3Client
+		fmt.Println("🔄 Resuming upload (mock)...")
 		fmt.Println("✅ Resume completed (mock)")
+		return nil
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(resumeCmd)
-
-	resumeCmd.Flags().StringVarP(&resumeFilePath, "file", "f", "", "Path to local file")
+	resumeCmd.Flags().StringVarP(&resumeFilePath, "file", "f", "", "Path to local file (required)")
 	resumeCmd.Flags().StringVarP(&resumeBucket, "bucket", "b", "", "S3 bucket name")
 	resumeCmd.Flags().StringVarP(&resumeKey, "key", "k", "", "S3 object key")
-	resumeCmd.Flags().StringVarP(&uploadID, "upload-id", "u", "", "Upload ID to resume")
+	resumeCmd.Flags().StringVarP(&uploadID, "upload-id", "u", "", "Upload ID to resume (required)")
 
-	_ = resumeCmd.MarkFlagRequired("file")
-	_ = resumeCmd.MarkFlagRequired("bucket")
-	_ = resumeCmd.MarkFlagRequired("key")
-	_ = resumeCmd.MarkFlagRequired("upload-id")
+	resumeCmd.MarkFlagRequired("file")
+
+	rootCmd.AddCommand(resumeCmd)
 }

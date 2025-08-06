@@ -2,14 +2,17 @@ package favus
 
 import (
 	"fmt"
+	"github.com/GoCOMA/Favus/internal/config"
 	"os"
 
 	"github.com/spf13/cobra"
 )
 
 var (
-	cfgPath string
-	debug   bool
+	cfgPath      string
+	debug        bool
+	profile      string
+	loadedConfig *config.Config // 설정 파일 내용
 
 	// 빌드시 ldflags로 주입 가능
 	version = "dev"
@@ -17,13 +20,31 @@ var (
 	date    = "unknown"
 )
 
+func GetLoadedConfig() *config.Config {
+	return loadedConfig
+}
+
 // 루트 명령 정의
 var rootCmd = &cobra.Command{
 	Use:   "favus",
 	Short: "Favus - Reliable multipart uploader for S3",
-	Long: `Favus is a command-line utility for automated multipart uploads to S3.
+	Long: `
+
+ #####     ###  ### ##  ### ##   #### 
+  #  ##     ##   #  ##  ##  #   ##  # 
+ ####      # #   # ##   ## ##   ####  
+ ## #     ## #   ###   ##  #      ### 
+##       ## ##   ##    ##  #   ##  #  
+###     ###  ##  #      ###    ####   
+                                      
+                                      
+
+Welcome to Favus – S3 multipart upload automation tool!!
+Favus is a command-line utility for automated multipart uploads to S3.
 It chunks large files, uploads them concurrently, resumes broken transfers,
-and visualizes progress. Minimal config. Maximum reliability.`,
+and visualizes progress. Minimal config. Maximum reliability.
+Use 'favus --help' to see available commands.
+`,
 	Example: `
   # Upload a 5GB file to S3
   favus upload --file video.mp4 --bucket my-bucket --key uploads/video.mp4
@@ -38,13 +59,39 @@ and visualizes progress. Minimal config. Maximum reliability.`,
 		}
 		if cfgPath != "" {
 			fmt.Printf("[Favus] Loading config from %s\n", cfgPath)
-			// TODO: load configuration
+
+			var err error
+			loadedConfig, err = config.LoadConfig(cfgPath)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			fmt.Printf("[DEBUG] Config loaded → bucket: %s, key: %s\n", loadedConfig.Bucket, loadedConfig.Key)
+		} else {
+			if cfgPath != "" {
+				fmt.Printf("[Favus] Loading config from %s\n", cfgPath)
+				var err error
+				loadedConfig, err = config.LoadConfig(cfgPath)
+				if err != nil {
+					return fmt.Errorf("failed to load config: %w", err)
+				}
+			} else {
+				fmt.Println("⚠️  config.yaml 파일이 제공되지 않았습니다.")
+				fmt.Println("💬 필요한 값을 직접 입력하여 계속 진행합니다.")
+				switch cmd.Name() {
+				case "upload":
+					loadedConfig = config.PromptForUploadConfig(bucket, objectKey)
+				case "resume":
+					loadedConfig = config.PromptForResumeConfig()
+				case "ls-orphans":
+					loadedConfig = config.PromptForSimpleBucket(lsOrphansBucket, lsOrphansRegion)
+				default:
+					fmt.Println("Unknown command for interactive config")
+					os.Exit(1)
+				}
+			}
 		}
 		return nil
-	},
-	Run: func(cmd *cobra.Command, args []string) {
-		printBanner()
-		_ = cmd.Help()
 	},
 }
 
@@ -60,6 +107,7 @@ func init() {
 	// 전역 플래그 등록
 	rootCmd.PersistentFlags().StringVarP(&cfgPath, "config", "c", "", "Path to config file")
 	rootCmd.PersistentFlags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
+	rootCmd.PersistentFlags().StringVar(&profile, "profile", "", "AWS named profile to use")
 
 	// 버전 명령 등록
 	rootCmd.AddCommand(&cobra.Command{
@@ -71,22 +119,4 @@ func init() {
 	})
 
 	// upload, resume 명령은 각 파일의 init()에서 rootCmd.AddCommand()로 등록
-}
-
-// ASCII Art Banner
-func printBanner() {
-	fmt.Println(`
-
- #####     ###  ### ##  ### ##   #### 
-  #  ##     ##   #  ##  ##  #   ##  # 
- ####      # #   # ##   ## ##   ####  
- ## #     ## #   ###   ##  #      ### 
-##       ## ##   ##    ##  #   ##  #  
-###     ###  ##  #      ###    ####   
-                                      
-                                      
-
-Welcome to Favus – S3 multipart upload automation tool.
-Use 'favus --help' to see available commands.
-`)
 }

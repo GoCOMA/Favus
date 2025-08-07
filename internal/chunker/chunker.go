@@ -10,9 +10,9 @@ import (
 const chunkSize = 4 * 1024 * 1024 // 4MB
 
 /*
-*
-
-	split chunk from single file
+author : greensnapback0229
+description : core method for split file to chunks
+return : error
 */
 func splitFileToChunks(filePath string) error {
 	file, err := os.Open(filePath)
@@ -49,10 +49,33 @@ func writeChunk(filename string, data []byte) error {
 	//Todo: write chunk to s3
 }
 
-func main() {
-	filePath := "video.mp4" // 분할할 파일명으로 변경하세요
-	err := splitFileToChunks(filePath)
+/*
+author : greensnapback0229
+description : split a single file into chunks using splitFileToChunks
+return : error
+*/
+func SplitSingleFile(filePath string) error {
+	return splitFileToChunks(filePath)
+}
+
+/*
+author : greensnapback0229
+description : split all regular files in the given directory into chunks using splitFileToChunks
+return : error
+*/
+func SplitAllFilesInDir(dirPath string) error {
+	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		fmt.Println("Error:", err)
+		return fmt.Errorf("failed to read directory: %w", err)
 	}
+	for _, entry := range entries {
+		if entry.Type().IsRegular() {
+			filePath := filepath.Join(dirPath, entry.Name())
+			err := splitFileToChunks(filePath)
+			if err != nil {
+				return fmt.Errorf("failed to split file %s: %w", filePath, err)
+			}
+		}
+	}
+	return nil
 }

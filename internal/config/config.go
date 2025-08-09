@@ -4,16 +4,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go/aws/credentials"
 )
 
-const DefaultChunkSize = 5 * 1024 * 1024
+var DefaultChunkSize int64 = 5 * 1024 * 1024
 
 type Config struct {
-	AWSRegion string
+	AWSRegion    string
 	S3BucketName string
-	ChunkSize int64
+	ChunkSize    int64
+	Creds        *credentials.Credentials
 }
 
 func LoadAWSCredentials() (*credentials.Credentials, error) {
@@ -46,7 +48,7 @@ func LoadConfig() (*Config, error) {
 	}
 
 	chunkSizeStr := os.Getenv("CHUNK_SIZE")
-	
+
 	// If CHUNK_SIZE is set, parse it; otherwise, use the default
 	if chunkSizeStr != "" {
 		parsedSize, err := strconv.ParseInt(chunkSizeStr, 10, 64)
@@ -67,14 +69,15 @@ func LoadConfig() (*Config, error) {
 
 	// Default configuration
 	config := &Config{
-		AWSRegion: "ap-northeast-2", // Default to Seoul region
+		AWSRegion:    "ap-northeast-2", // Default to Seoul region
 		S3BucketName: S3BucketName,
-		ChunkSize: DefaultChunkSize,
+		ChunkSize:    DefaultChunkSize,
+		Creds:        creds,
 	}
 
 	fmt.Printf("Using AWS Region: %s\n", config.AWSRegion)
 	fmt.Printf("Using S3 Bucket: %s\n", config.S3BucketName)
 	fmt.Printf("Using Chunk Size: %d bytes\n", config.ChunkSize)
-	
+
 	return config, nil
 }

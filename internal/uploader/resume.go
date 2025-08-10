@@ -1,28 +1,28 @@
 package uploader
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
-
 	"favus/internal/chunker"
 	"favus/pkg/utils"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-// ResumeUploader allows resuming a multipart upload.
+// ResumeUploader allows resuming a multipart upload (AWS SDK v2).
 type ResumeUploader struct {
-	S3Client *s3.S3
+	S3Client *s3.Client
 }
 
 // NewResumeUploader creates a new ResumeUploader.
-func NewResumeUploader(s3Client *s3.S3) *ResumeUploader { // logger 인자 제거
-	return &ResumeUploader{
-		S3Client: s3Client,
-	}
+func NewResumeUploader(s3Client *s3.Client) *ResumeUploader {
+	return &ResumeUploader{S3Client: s3Client}
 }
 
 // ResumeUpload resumes a multipart upload from a saved status.
@@ -44,21 +44,24 @@ func (ru *ResumeUploader) ResumeUpload(statusFilePath string) error {
 
 	// Ensure the total parts match
 	if len(chunks) != status.TotalParts {
-		utils.Error(fmt.Sprintf("Mismatch in total parts for %s: expected %d, got %d from status. Aborting resume.", status.FilePath, len(chunks), status.TotalParts))
+		utils.Error(fmt.Sprintf(
+			"Mismatch in total parts for %s: expected %d, got %d from status. Aborting resume.",
+			status.FilePath, len(chunks), status.TotalParts,
+		))
 		return fmt.Errorf("mismatch in total parts: expected %d, got %d from status", len(chunks), status.TotalParts)
 	}
 
-	completedParts := make([]*s3.CompletedPart, 0, len(status.CompletedParts))
+	completedParts := make([]s3types.CompletedPart, 0, len(status.CompletedParts))
 	for partNum, eTag := range status.CompletedParts {
-		completedParts = append(completedParts, &s3.CompletedPart{
-			PartNumber: aws.Int64(int64(partNum)),
-			ETag:       aws.String(eTag),
+		completedParts = append(completedParts, s3types.CompletedPart{
+			PartNumber: aws.Int32(int32(partNum)), // *int32
+			ETag:       aws.String(eTag),          // *string
 		})
 	}
 
 	// Sort completed parts by part number to ensure correct order
 	sort.Slice(completedParts, func(i, j int) bool {
-		return *completedParts[i].PartNumber < *completedParts[j].PartNumber
+		return aws.ToInt32(completedParts[i].PartNumber) < aws.ToInt32(completedParts[j].PartNumber)
 	})
 
 	// Upload remaining parts
@@ -68,7 +71,7 @@ func (ru *ResumeUploader) ResumeUpload(statusFilePath string) error {
 			continue
 		}
 
-		reader, err := fileChunker.GetChunkReader(ch)
+		reader, err := fileChunker.GetChunkReader(ch) // implements io.ReadSeekCloser
 		if err != nil {
 			utils.Error(fmt.Sprintf("Failed to get chunk reader for part %d of %s: %v", ch.Index, status.FilePath, err))
 			return fmt.Errorf("failed to get chunk reader for part %d: %w", ch.Index, err)
@@ -79,13 +82,13 @@ func (ru *ResumeUploader) ResumeUpload(statusFilePath string) error {
 		var uploadOutput *s3.UploadPartOutput
 		err = utils.Retry(5, 2*time.Second, func() error {
 			var partErr error
-			uploadOutput, partErr = ru.S3Client.UploadPart(&s3.UploadPartInput{
-				Body:          aws.ReadSeekCloser(reader),
-				Bucket:        aws.String(status.Bucket),
-				Key:           aws.String(status.Key),
-				PartNumber:    aws.Int64(int64(ch.Index)),
-				UploadId:      aws.String(status.UploadID),
-				ContentLength: aws.Int64(ch.Size),
+			uploadOutput, partErr = ru.S3Client.UploadPart(context.Background(), &s3.UploadPartInput{
+				Body:          reader, // Read+Seek
+				Bucket:        &status.Bucket,
+				Key:           &status.Key,
+				PartNumber:    aws.Int32(int32(ch.Index)), // *int32
+				UploadId:      &status.UploadID,
+				ContentLength: aws.Int64(ch.Size), // *int64
 			})
 			if partErr != nil {
 				utils.Error(fmt.Sprintf("Failed to upload part %d for %s: %v", ch.Index, status.FilePath, partErr))
@@ -93,6 +96,7 @@ func (ru *ResumeUploader) ResumeUpload(statusFilePath string) error {
 			}
 			return nil
 		})
+		_ = reader.Close()
 
 		if err != nil {
 			utils.Error(fmt.Sprintf("Failed to upload part %d for %s after retries: %v", ch.Index, status.FilePath, err))
@@ -102,23 +106,22 @@ func (ru *ResumeUploader) ResumeUpload(statusFilePath string) error {
 		status.AddCompletedPart(ch.Index, *uploadOutput.ETag)
 		if err := status.SaveStatus(statusFilePath); err != nil {
 			utils.Error(fmt.Sprintf("Failed to save status after completing part %d for %s: %v", ch.Index, status.FilePath, err))
-			// Non-fatal, but log it
 		}
 		utils.Info(fmt.Sprintf("Successfully uploaded part %d. ETag: %s", ch.Index, *uploadOutput.ETag))
 
-		completedParts = append(completedParts, &s3.CompletedPart{
-			PartNumber: aws.Int64(int64(ch.Index)),
+		completedParts = append(completedParts, s3types.CompletedPart{
+			PartNumber: aws.Int32(int32(ch.Index)),
 			ETag:       uploadOutput.ETag,
 		})
 	}
 
 	// Complete the multipart upload
 	utils.Info(fmt.Sprintf("Completing multipart upload for file: %s", status.FilePath))
-	_, err = ru.S3Client.CompleteMultipartUpload(&s3.CompleteMultipartUploadInput{
-		Bucket:   aws.String(status.Bucket),
-		Key:      aws.String(status.Key),
-		UploadId: aws.String(status.UploadID),
-		MultipartUpload: &s3.CompletedMultipartUpload{
+	_, err = ru.S3Client.CompleteMultipartUpload(context.Background(), &s3.CompleteMultipartUploadInput{
+		Bucket:   &status.Bucket,
+		Key:      &status.Key,
+		UploadId: &status.UploadID,
+		MultipartUpload: &s3types.CompletedMultipartUpload{
 			Parts: completedParts,
 		},
 	})

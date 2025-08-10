@@ -16,13 +16,15 @@ func main() {
 	// Load application configuration.
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		utils.Fatal("Failed to load configuration: %v", err)
+		utils.Error(fmt.Sprintf("Failed to load configuration: %v", err))
+		os.Exit(1)
 	}
 
 	// Initialize the S3 uploader.
 	s3Uploader, err := uploader.NewUploader(cfg) // Changed to NewUploader for consistency
 	if err != nil {
-		utils.Fatal("Failed to initialize S3 uploader: %v", err)
+		utils.Error(fmt.Sprintf("Failed to initialize S3 uploader: %v", err))
+		os.Exit(1)
 	}
 
 	// Display usage if no command is provided.
@@ -42,42 +44,50 @@ func main() {
 	switch command {
 	case "upload":
 		if len(os.Args) != 4 {
-			utils.Fatal("Usage: favus upload <local_file_path> <s3_key>")
+			utils.Error(fmt.Sprintf("Usage: favus upload <local_file_path> <s3_key>"))
+			os.Exit(1)
 		}
 		localFilePath := os.Args[2]
 		s3Key := os.Args[3]
 		if err := s3Uploader.UploadFile(localFilePath, s3Key); err != nil {
-			utils.Fatal("Upload failed: %v", err)
+			utils.Error(fmt.Sprintf("Upload failed: %v", err))
+			os.Exit(1)
 		}
 		utils.Info("File uploaded successfully.")
 
 	case "resume":
 		if len(os.Args) != 3 {
-			utils.Fatal("Usage: favus resume <status_file_path>")
+			utils.Error(fmt.Sprintf("Usage: favus resume <status_file_path>"))
+			os.Exit(1)
 		}
 		statusFilePath := os.Args[2]
 		if err := s3Uploader.ResumeUpload(statusFilePath); err != nil {
-			utils.Fatal("Resume failed: %v", err)
+			utils.Error(fmt.Sprintf("Resume failed: %v", err))
+			os.Exit(1)
 		}
 		utils.Info("File upload resumed and completed successfully.")
 
 	case "delete":
 		if len(os.Args) != 3 {
-			utils.Fatal("Usage: favus delete <s3_key>")
+			utils.Error(fmt.Sprintf("Usage: favus delete <s3_key>"))
+			os.Exit(1)
 		}
 		s3Key := os.Args[2]
 		if err := s3Uploader.DeleteFile(s3Key); err != nil {
-			utils.Fatal("Deletion failed: %m", err) // Fixed typo: %v -> %m
+			utils.Error(fmt.Sprintf("Deletion failed: %v", err))
+			os.Exit(1)
 		}
 		utils.Info("File deleted successfully.")
 
 	case "list-uploads":
 		if len(os.Args) != 2 {
-			utils.Fatal("Usage: favus list-uploads")
+			utils.Error(fmt.Sprintf("Usage: favus list-uploads"))
+			os.Exit(1)
 		}
 		uploads, err := s3Uploader.ListMultipartUploads()
 		if err != nil {
-			utils.Fatal("Failed to list multipart uploads: %v", err)
+			utils.Error(fmt.Sprintf("Failed to list multipart uploads: %v", err))
+			os.Exit(1)
 		}
 		if len(uploads) == 0 {
 			utils.Info("No ongoing multipart uploads found.")
@@ -85,10 +95,11 @@ func main() {
 		}
 		utils.Info("Ongoing multipart uploads:")
 		for _, upload := range uploads {
-			utils.Info("  UploadID: %s, Key: %s, Initiated: %s", *upload.UploadId, *upload.Key, upload.Initiated.Format(time.RFC3339))
+			utils.Info(fmt.Sprintf("UploadID: %s, Key: %s, Initiated: %s", *upload.UploadId, *upload.Key, upload.Initiated.Format(time.RFC3339)))
 		}
 
 	default:
-		utils.Fatal("Unknown command: %s", command)
+		utils.Error(fmt.Sprintf("Unknown command: %s", command))
+		os.Exit(1)
 	}
 }

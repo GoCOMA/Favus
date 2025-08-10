@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 
 	"favus/internal/config"
 )
 
-const DefaultChunkSize = config.DefaultChunkSize
+var DefaultChunkSize = config.DefaultChunkSize
 
 // Chunk represents a part of a file to be uploaded.
 type Chunk struct {
@@ -76,6 +75,7 @@ type ChunkReader struct {
 	offset int64
 	size   int64
 	read   int64
+}
 
 // Read reads up to len(p) bytes into p.
 // It stops reading when the chunk's size limit is reached.

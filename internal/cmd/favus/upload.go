@@ -3,11 +3,11 @@ package favus
 import (
 	"bufio"
 	"fmt"
-	"github.com/GoCOMA/Favus/internal/awsutils"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"os"
 	"strings"
 
+	"github.com/GoCOMA/Favus/internal/awsutils"
+	"github.com/GoCOMA/Favus/internal/uploader"
 	"github.com/spf13/cobra"
 )
 
@@ -22,61 +22,65 @@ var uploadCmd = &cobra.Command{
 	Use:   "upload",
 	Short: "Upload a file to S3 using multipart upload",
 	Long: `Initiates a multipart upload for a large file and uploads all parts to the specified S3 bucket.
-Handles chunking, retries, and upload tracking automatically.`,
+Handles chunking, retries, resume support, and progress visualization automatically.`,
 	Example: `
-  favus upload --file ./bigfile.mp4 --bucket my-bucket --key uploads/bigfile.mp4`,
+  favus upload --file ./bigfile.mp4 --bucket my-bucket --key uploads/bigfile.mp4
+  favus upload -f ./bigfile.mp4 -c config.yaml`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// 1. AWS 인증 (인증 없으면 내부에서 프롬프트)
-		cfg, err := awsutils.LoadAWSConfig(profile)
+		// 1) Load AWS config (profile aware)
+		awsCfg, err := awsutils.LoadAWSConfig(profile)
 		if err != nil {
-			return err
+			return fmt.Errorf("load aws config: %w", err)
 		}
 
-		// 2. config.yaml 우선 적용 (있다면)
+		// 2) Start from loaded config (file/ENV), then override with flags
 		conf := GetLoadedConfig()
-		if bucket == "" && conf != nil {
-			bucket = conf.Bucket
+		if conf == nil {
+			return fmt.Errorf("config not loaded (PersistentPreRunE should have populated it)")
 		}
-		if objectKey == "" && conf != nil {
-			objectKey = conf.Key
+		if bucket != "" {
+			conf.Bucket = strings.TrimSpace(bucket)
+		}
+		if objectKey != "" {
+			conf.Key = strings.TrimSpace(objectKey)
 		}
 
-		// 3. 누락된 값에 대해 프롬프트
+		// 3) Prompt for missing required fields
 		reader := bufio.NewReader(os.Stdin)
-		if bucket == "" {
+		if strings.TrimSpace(conf.Bucket) == "" {
 			fmt.Print("🔧 Enter S3 bucket name: ")
-			input, _ := reader.ReadString('\n')
-			bucket = strings.TrimSpace(input)
+			in, _ := reader.ReadString('\n')
+			conf.Bucket = strings.TrimSpace(in)
 		}
-		if objectKey == "" {
+		if strings.TrimSpace(conf.Key) == "" {
 			fmt.Print("📝 Enter S3 object key: ")
-			input, _ := reader.ReadString('\n')
-			objectKey = strings.TrimSpace(input)
+			in, _ := reader.ReadString('\n')
+			conf.Key = strings.TrimSpace(in)
 		}
 
-		// 4. 파일 존재 여부 체크
+		// 4) Validate local file
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			return fmt.Errorf("file not found: %s", filePath)
 		}
 
-		// 5. 실행 로그
-		fmt.Printf("✅ Final values → file: %s, bucket: %s, key: %s\n", filePath, bucket, objectKey)
+		// 5) Do upload
+		up, err := uploader.NewUploaderWithAWSConfig(conf, awsCfg)
+		if err != nil {
+			return fmt.Errorf("init uploader: %w", err)
+		}
+		if err := up.UploadFile(filePath, conf.Key); err != nil {
+			return fmt.Errorf("upload failed: %w", err)
+		}
 
-		// 6. 업로드 로직 (mock)
-		s3Client := s3.NewFromConfig(cfg)
-		_ = s3Client
-		fmt.Println("📤 Starting upload...")
-		fmt.Println("✅ Upload completed successfully (mock)")
+		fmt.Printf("✅ Upload complete → s3://%s/%s\n", conf.Bucket, conf.Key)
 		return nil
 	},
 }
 
 func init() {
-	uploadCmd.Flags().StringVarP(&filePath, "file", "f", "", "Path to the local file to upload (required)")
-	uploadCmd.Flags().StringVarP(&bucket, "bucket", "b", "", "Target S3 bucket name (required)")
-	uploadCmd.Flags().StringVarP(&objectKey, "key", "k", "", "S3 object key (required)")
-
-	uploadCmd.MarkFlagRequired("file")
-
 	rootCmd.AddCommand(uploadCmd)
+	uploadCmd.Flags().StringVarP(&filePath, "file", "f", "", "Path to the local file to upload (required)")
+	uploadCmd.Flags().StringVarP(&bucket, "bucket", "b", "", "Target S3 bucket name (overrides config/ENV)")
+	uploadCmd.Flags().StringVarP(&objectKey, "key", "k", "", "S3 object key (overrides config/ENV)")
+	_ = uploadCmd.MarkFlagRequired("file")
 }

@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 
-	"favus/internal/config"
+	"github.com/GoCOMA/Favus/internal/config"
 )
 
 var DefaultChunkSize = config.DefaultChunkSize

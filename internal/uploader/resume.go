@@ -7,8 +7,8 @@ import (
 	"sort"
 	"time"
 
-	"favus/internal/chunker"
-	"favus/pkg/utils"
+	"github.com/GoCOMA/Favus/internal/chunker"
+	"github.com/GoCOMA/Favus/pkg/utils"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"

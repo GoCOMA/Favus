@@ -61,9 +61,12 @@ var listUploadsCmd = &cobra.Command{
 			if u.UploadId != nil {
 				uploadID = *u.UploadId
 			}
-			initTime := u.Initiated
-			fmt.Printf("- UploadID: %s | Key: %s | Initiated: %s\n",
-				uploadID, key, initTime.Format(time.RFC3339))
+
+			initiated := "-"
+			if u.Initiated != nil {
+				initiated = u.Initiated.Format(time.RFC3339)
+			}
+			fmt.Printf("- UploadID: %s | Key: %s | Initiated: %s\n", uploadID, key, initiated)
 		}
 		return nil
 	},

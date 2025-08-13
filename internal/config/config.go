@@ -3,11 +3,21 @@ package config
 import (
 	"bufio"
 	"fmt"
-	"github.com/spf13/viper"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/spf13/viper"
 )
+
+const (
+	defaultRegion     = "ap-northeast-2"
+	minPartSizeMB     = 5
+	defaultPartSizeMB = 5
+)
+
+// Backward-compatibility for develop branch users of config.DefaultChunkSize (bytes)
+var DefaultChunkSize int64 = int64(defaultPartSizeMB) * 1024 * 1024
 
 type Config struct {
 	Bucket         string `mapstructure:"bucket"`
@@ -18,26 +28,81 @@ type Config struct {
 	UploadID       string
 }
 
-// --- File Loader ---
+// --- File Loader + ENV Overlay (develop compatibility) ---
 func LoadConfig(path string) (*Config, error) {
-	v := viper.New()
-	v.SetConfigFile(path)
-	v.SetConfigType("yaml")
-
-	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+	// Default values
+	conf := &Config{
+		Region:         defaultRegion,
+		PartSizeMB:     defaultPartSizeMB,
+		MaxConcurrency: 4,
 	}
 
-	var conf Config
-	if err := v.Unmarshal(&conf); err != nil {
-		return nil, fmt.Errorf("unmarshal config: %w", err)
+	// Load from config file (main branch logic)
+	if path != "" {
+		v := viper.New()
+		v.SetConfigFile(path)
+		v.SetConfigType("yaml")
+
+		if err := v.ReadInConfig(); err != nil {
+			return nil, fmt.Errorf("read config: %w", err)
+		}
+		if err := v.Unmarshal(&conf); err != nil {
+			return nil, fmt.Errorf("unmarshal config: %w", err)
+		}
 	}
 
-	fmt.Printf("[DEBUG] config loaded from file: %+v\n", conf)
-	return &conf, nil
+	// Apply environment variable overrides (develop branch compatibility)
+	applyEnvOverrides(conf)
+
+	// Ensure minimum values
+	if conf.Region == "" {
+		conf.Region = defaultRegion
+	}
+	if conf.PartSizeMB < minPartSizeMB {
+		conf.PartSizeMB = minPartSizeMB
+	}
+
+	// Keep develop's global in sync (bytes)
+	DefaultChunkSize = int64(conf.PartSizeMB) * 1024 * 1024
+
+	fmt.Printf("[DEBUG] effective config: %+v\n", *conf)
+	return conf, nil
 }
 
-// --- Upload Prompt ---
+// Map develop's ENV variables into main's Config struct
+// - S3_BUCKET_NAME -> Bucket
+// - AWS_REGION     -> Region
+// - CHUNK_SIZE (in bytes) -> PartSizeMB (ceil, min 5MB)
+func applyEnvOverrides(c *Config) {
+	if v := os.Getenv("S3_BUCKET_NAME"); v != "" {
+		c.Bucket = strings.TrimSpace(v)
+	}
+	if v := os.Getenv("AWS_REGION"); v != "" {
+		c.Region = strings.TrimSpace(v)
+	}
+	if v := os.Getenv("CHUNK_SIZE"); v != "" {
+		if b, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil && b > 0 {
+			mb := int((b + (1024*1024 - 1)) / (1024 * 1024)) // ceil to MB
+			if mb < minPartSizeMB {
+				mb = minPartSizeMB
+			}
+			c.PartSizeMB = mb
+		} else {
+			fmt.Printf("Warning: invalid CHUNK_SIZE '%s'. Using %dMB.\n", v, minPartSizeMB)
+		}
+	}
+}
+
+// Convenience: get part size in bytes
+func (c *Config) PartSizeBytes() int64 {
+	mb := c.PartSizeMB
+	if mb < minPartSizeMB {
+		mb = minPartSizeMB
+	}
+	return int64(mb) * 1024 * 1024
+}
+
+// --- Upload Prompt (main branch logic) ---
 func PromptForUploadConfig(existingBucket, existingKey string) *Config {
 	reader := bufio.NewReader(os.Stdin)
 
@@ -67,13 +132,13 @@ func PromptForUploadConfig(existingBucket, existingKey string) *Config {
 	return &Config{
 		Bucket:         bucket,
 		Key:            key,
-		Region:         defaultIfEmpty(region, "ap-northeast-2"),
-		PartSizeMB:     parseIntWithMin(partStr, 10, 5),
+		Region:         defaultIfEmpty(region, defaultRegion),
+		PartSizeMB:     parseIntWithMin(partStr, defaultPartSizeMB, minPartSizeMB),
 		MaxConcurrency: parseIntWithMin(conStr, 4, 1),
 	}
 }
 
-// --- Resume Prompt ---
+// --- Resume Prompt (main branch logic) ---
 func PromptForResumeConfig() *Config {
 	reader := bufio.NewReader(os.Stdin)
 
@@ -92,16 +157,15 @@ func PromptForResumeConfig() *Config {
 	return &Config{
 		Bucket:   strings.TrimSpace(bucket),
 		Key:      strings.TrimSpace(key),
-		Region:   defaultIfEmpty(region, "ap-northeast-2"),
+		Region:   defaultIfEmpty(region, defaultRegion),
 		UploadID: strings.TrimSpace(uploadID),
 	}
 }
 
-// --- ls-orphans Prompt ---
+// --- Simple Bucket Prompt (main branch logic) ---
 func PromptForSimpleBucket(bucketInput, regionInput string) *Config {
 	reader := bufio.NewReader(os.Stdin)
 
-	// bucket
 	bucket := strings.TrimSpace(bucketInput)
 	if bucket == "" {
 		fmt.Print("🔧 Enter S3 bucket name: ")
@@ -109,7 +173,6 @@ func PromptForSimpleBucket(bucketInput, regionInput string) *Config {
 		bucket = strings.TrimSpace(input)
 	}
 
-	// region
 	region := strings.TrimSpace(regionInput)
 	if region == "" {
 		fmt.Print("🌐 Enter AWS region (default: ap-northeast-2): ")
@@ -119,7 +182,7 @@ func PromptForSimpleBucket(bucketInput, regionInput string) *Config {
 
 	return &Config{
 		Bucket: bucket,
-		Region: defaultIfEmpty(region, "ap-northeast-2"),
+		Region: defaultIfEmpty(region, defaultRegion),
 	}
 }
 

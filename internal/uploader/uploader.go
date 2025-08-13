@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+	"github.com/schollz/progressbar/v3"
 )
 
 // Uploader manages file uploads, deletions, and multipart upload operations for S3.
@@ -121,6 +122,16 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 	}
 	chunks := fileChunker.Chunks()
 
+	// Progress bars: total + per-part
+	totalBar := progressbar.NewOptions64(
+		fileInfo.Size(),
+		progressbar.OptionSetDescription("total"),
+		progressbar.OptionShowBytes(true),
+		progressbar.OptionSetWidth(30),
+		progressbar.OptionThrottle(65*time.Millisecond),
+		//progressbar.OptionClearOnFinish(),
+		progressbar.OptionSetWriter(os.Stdout))
+
 	// Initiate multipart upload
 	initiateOutput, err := u.s3Client.CreateMultipartUpload(context.Background(), &s3.CreateMultipartUploadInput{
 		Bucket: &u.Config.Bucket,
@@ -148,13 +159,27 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 			return fmt.Errorf("failed to get chunk reader for part %d: %w", ch.Index, err)
 		}
 
+		partBar := progressbar.NewOptions64(
+			ch.Size,
+			progressbar.OptionSetDescription(fmt.Sprintf("part %d", ch.Index)),
+			progressbar.OptionShowBytes(true),
+			progressbar.OptionSetWidth(30),
+			progressbar.OptionThrottle(65*time.Millisecond),
+			//progressbar.OptionClearOnFinish(),
+			progressbar.OptionSetWriter(os.Stdout),
+		)
+		pr := NewReadSeekCloserProgress(reader, func(n int64) {
+			_ = partBar.Add64(n)
+			_ = totalBar.Add64(n)
+		})
+
 		utils.Info(fmt.Sprintf("Uploading part %d (offset %d, size %d) for file %s", ch.Index, ch.Offset, ch.Size, filePath))
 
 		var uploadOutput *s3.UploadPartOutput
 		err = utils.Retry(5, 2*time.Second, func() error {
 			var partErr error
 			uploadOutput, partErr = u.s3Client.UploadPart(context.Background(), &s3.UploadPartInput{
-				Body:          reader,
+				Body:          pr, // progress-wrapped
 				Bucket:        &u.Config.Bucket,
 				Key:           &s3Key,
 				PartNumber:    aws.Int32(int32(ch.Index)),
@@ -167,7 +192,7 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 			}
 			return nil
 		})
-		_ = reader.Close()
+		_ = pr.Close()
 
 		if err != nil {
 			utils.Error(fmt.Sprintf("Failed to upload part %d after retries: %v", ch.Index, err))
@@ -184,6 +209,7 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 				PartNumber: aws.Int32(int32(ch.Index)),
 				ETag:       uploadOutput.ETag,
 			})
+			_ = partBar.Finish() // ← 줄 깨끗이 마무리(개행)
 			utils.Info(fmt.Sprintf("Successfully uploaded part %d. ETag: %s", ch.Index, *uploadOutput.ETag))
 		} else {
 			utils.Error(fmt.Sprintf("ETag for part %d is nil. Aborting upload.", ch.Index))

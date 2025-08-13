@@ -15,11 +15,12 @@ type UploadStatus struct {
 	Key            string         `json:"key"`
 	CompletedParts map[int]string `json:"completedParts"`
 	TotalParts     int            `json:"totalParts"`
+	PartSizeBytes  int64          `json:"partSizeBytes"`
 	Mu             sync.Mutex     `json:"-"`
 }
 
 // NewUploadStatus creates a new UploadStatus.
-func NewUploadStatus(filePath, bucket, key, uploadID string, totalParts int) *UploadStatus {
+func NewUploadStatus(filePath, bucket, key, uploadID string, totalParts int, partSizeBytes int64) *UploadStatus {
 	return &UploadStatus{
 		FilePath:       filePath,
 		UploadID:       uploadID,
@@ -27,6 +28,7 @@ func NewUploadStatus(filePath, bucket, key, uploadID string, totalParts int) *Up
 		Key:            key,
 		CompletedParts: make(map[int]string),
 		TotalParts:     totalParts,
+		PartSizeBytes:  partSizeBytes,
 	}
 }
 

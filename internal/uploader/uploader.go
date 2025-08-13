@@ -135,7 +135,7 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 
 	// Prepare status tracker
 	statusFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_%s.upload_status", filepath.Base(filePath), uploadID[:8]))
-	status := NewUploadStatus(filePath, u.Config.Bucket, s3Key, uploadID, len(chunks))
+	status := NewUploadStatus(filePath, u.Config.Bucket, s3Key, uploadID, len(chunks), u.Config.PartSizeBytes())
 
 	var completedParts []s3types.CompletedPart
 

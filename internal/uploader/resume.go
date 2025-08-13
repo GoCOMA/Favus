@@ -35,7 +35,7 @@ func (ru *ResumeUploader) ResumeUpload(statusFilePath string) error {
 
 	utils.Info(fmt.Sprintf("Resuming upload for file: %s with UploadID: %s", status.FilePath, status.UploadID))
 
-	fileChunker, err := chunker.NewFileChunker(status.FilePath, chunker.DefaultChunkSize)
+	fileChunker, err := chunker.NewFileChunker(status.FilePath, status.PartSizeBytes)
 	if err != nil {
 		utils.Error(fmt.Sprintf("Failed to create file chunker for resume for %s: %v", status.FilePath, err))
 		return fmt.Errorf("failed to create file chunker for resume: %w", err)

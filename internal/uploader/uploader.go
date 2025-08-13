@@ -129,7 +129,8 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 		progressbar.OptionShowBytes(true),
 		progressbar.OptionSetWidth(30),
 		progressbar.OptionThrottle(65*time.Millisecond),
-		progressbar.OptionClearOnFinish())
+		//progressbar.OptionClearOnFinish(),
+		progressbar.OptionSetWriter(os.Stdout))
 
 	// Initiate multipart upload
 	initiateOutput, err := u.s3Client.CreateMultipartUpload(context.Background(), &s3.CreateMultipartUploadInput{
@@ -158,20 +159,20 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 			return fmt.Errorf("failed to get chunk reader for part %d: %w", ch.Index, err)
 		}
 
-		utils.Info(fmt.Sprintf("Uploading part %d (offset %d, size %d) for file %s", ch.Index, ch.Offset, ch.Size, filePath))
-
 		partBar := progressbar.NewOptions64(
 			ch.Size,
 			progressbar.OptionSetDescription(fmt.Sprintf("part %d", ch.Index)),
 			progressbar.OptionShowBytes(true),
 			progressbar.OptionSetWidth(30),
 			progressbar.OptionThrottle(65*time.Millisecond),
-			progressbar.OptionClearOnFinish(),
+			//progressbar.OptionClearOnFinish(),
+			progressbar.OptionSetWriter(os.Stdout),
 		)
 		pr := NewReadSeekCloserProgress(reader, func(n int64) {
 			_ = partBar.Add64(n)
 			_ = totalBar.Add64(n)
 		})
+
 		utils.Info(fmt.Sprintf("Uploading part %d (offset %d, size %d) for file %s", ch.Index, ch.Offset, ch.Size, filePath))
 
 		var uploadOutput *s3.UploadPartOutput
@@ -208,6 +209,7 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 				PartNumber: aws.Int32(int32(ch.Index)),
 				ETag:       uploadOutput.ETag,
 			})
+			_ = partBar.Finish() // ← 줄 깨끗이 마무리(개행)
 			utils.Info(fmt.Sprintf("Successfully uploaded part %d. ETag: %s", ch.Index, *uploadOutput.ETag))
 		} else {
 			utils.Error(fmt.Sprintf("ETag for part %d is nil. Aborting upload.", ch.Index))

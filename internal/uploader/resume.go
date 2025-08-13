@@ -74,7 +74,8 @@ func (ru *ResumeUploader) ResumeUpload(statusFilePath string) error {
 		progressbar.OptionShowBytes(true),
 		progressbar.OptionSetWidth(30),
 		progressbar.OptionThrottle(65*time.Millisecond),
-		progressbar.OptionClearOnFinish(),
+		//progressbar.OptionClearOnFinish(),
+		progressbar.OptionSetWriter(os.Stdout),
 	)
 	// 이미 완료된 파트만큼 선가산
 	var already int64
@@ -97,8 +98,6 @@ func (ru *ResumeUploader) ResumeUpload(statusFilePath string) error {
 			return fmt.Errorf("failed to get chunk reader for part %d: %w", ch.Index, err)
 		}
 
-		utils.Info(fmt.Sprintf("Uploading part %d (offset %d, size %d) for file %s", ch.Index, ch.Offset, ch.Size, status.FilePath))
-
 		//파트 진행률 바
 		partBar := progressbar.NewOptions64(
 			ch.Size,
@@ -106,14 +105,16 @@ func (ru *ResumeUploader) ResumeUpload(statusFilePath string) error {
 			progressbar.OptionShowBytes(true),
 			progressbar.OptionSetWidth(30),
 			progressbar.OptionThrottle(65*time.Millisecond),
-			progressbar.OptionClearOnFinish(),
+			//progressbar.OptionClearOnFinish(),\
+			progressbar.OptionSetWriter(os.Stdout),
 		)
+		utils.Info(fmt.Sprintf("Uploading part %d (offset %d, size %d) for file %s", ch.Index, ch.Offset, ch.Size, status.FilePath))
+
 		// 진행률 래퍼로 감싸서 SDK가 읽는 만큼 바를 올림 (재시도/되감기 보정 포함)
 		pr := NewReadSeekCloserProgress(reader, func(n int64) {
 			_ = partBar.Add64(n)
 			_ = totalBar.Add64(n)
 		})
-		utils.Info(fmt.Sprintf("Uploading part %d (offset %d, size %d) for file %s", ch.Index, ch.Offset, ch.Size, status.FilePath))
 
 		var uploadOutput *s3.UploadPartOutput
 		err = utils.Retry(5, 2*time.Second, func() error {
@@ -143,8 +144,8 @@ func (ru *ResumeUploader) ResumeUpload(statusFilePath string) error {
 		if err := status.SaveStatus(statusFilePath); err != nil {
 			utils.Error(fmt.Sprintf("Failed to save status after completing part %d for %s: %v", ch.Index, status.FilePath, err))
 		}
+		_ = partBar.Finish() // upload와 동일하게 파트 완료 시 줄 정리
 		utils.Info(fmt.Sprintf("Successfully uploaded part %d. ETag: %s", ch.Index, *uploadOutput.ETag))
-
 		completedParts = append(completedParts, s3types.CompletedPart{
 			PartNumber: aws.Int32(int32(ch.Index)),
 			ETag:       uploadOutput.ETag,

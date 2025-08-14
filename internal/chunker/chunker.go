@@ -4,11 +4,28 @@ import (
 	"fmt"
 	"io"
 	"os"
-
+	"path/filepath"
+	"strings"
+	"github.com/GoCOMA/Favus/pkg/utils"
 	"github.com/GoCOMA/Favus/internal/config"
 )
 
 var DefaultChunkSize = config.DefaultChunkSize
+var chunksDir = config.ChunksDir
+
+// Error type constants
+const (
+	ErrorNone        = ""
+	ErrorFileOpen    = "FILE_OPEN_FAILED"
+	ErrorChunkWrite  = "CHUNK_WRITE_FAILED" 
+	ErrorFileRead    = "FILE_READ_FAILED"
+)
+
+// ChunkResult represents the result of file chunking operation
+type ChunkResult struct {
+	Chunks []Chunk
+	Error  string // String to distinguish error types
+}
 
 // Chunk represents a part of a file to be uploaded.
 type Chunk struct {
@@ -44,30 +61,187 @@ func NewFileChunker(filePath string, chunkSize int64) (*FileChunker, error) {
 	}, nil
 }
 
-// Chunks returns a slice of Chunks for the file.
+/*
+author : popeye
+description : returns a slice of Chunks for the file
+return : []Chunk
+*/
 func (fc *FileChunker) Chunks() []Chunk {
+	result := fc.splitFileToChunks(fc.filePath)
+	if result.Error == ErrorFileOpen {
+		utils.LogError("Failed to open file: %s", fc.filePath)
+		return nil
+	} else if result.Error == ErrorChunkWrite {
+		utils.LogError("Failed to write chunk: %s", fc.filePath)
+		return nil
+	} else if result.Error == ErrorFileRead {
+		utils.LogError("Failed to read file: %s", fc.filePath)
+		return nil
+	} else if len(result.Chunks) == 0 {
+		utils.LogWarning("No chunks were generated from file: %s", fc.filePath)
+		return nil
+	} else {
+		utils.LogInfo("Successfully generated %d chunks from file: %s", len(result.Chunks), fc.filePath)
+		return result.Chunks
+	}
+}
+
+/*
+author : greensnapback0229, popeye
+description : core method for split file to chunks
+return : ChunkResult
+*/
+func (fc *FileChunker) splitFileToChunks(filePath string) ChunkResult {
+	utils.LogInfo("Starting file chunking for: %s", filePath)
+	
+	file, err := os.Open(filePath)
+	if err != nil {
+		utils.LogError("Failed to open file: %s, error: %v", filePath, err)
+		return ChunkResult{Chunks: nil, Error: ErrorFileOpen}
+	}
+	defer file.Close()
+	
+	utils.LogInfo("Successfully opened file: %s", filePath)
+
+	buf := make([]byte, fc.chunkSize)
+	chunkNum := 0
 	var chunks []Chunk
-	for i := 0; ; i++ {
-		offset := int64(i) * fc.chunkSize
-		remaining := fc.fileSize - offset
-		if remaining <= 0 {
+
+	for {
+		n, err := file.Read(buf)
+		if n > 0 {
+			chunkFileName := fmt.Sprintf("%s_chunk%d", filepath.Base(filePath), chunkNum)
+			utils.LogInfo("Creating chunk %d: %s (%d bytes)", chunkNum, chunkFileName, n)
+			
+			err := writeChunk(chunkFileName, buf[:n])
+			if err != nil {
+				utils.LogError("Failed to write chunk %d: %s, error: %v", chunkNum, chunkFileName, err)
+				utils.LogWarning("Rolling back %d previously created chunks", chunkNum)
+				rollbackChunks(filePath, chunkNum)
+				return ChunkResult{Chunks: nil, Error: ErrorChunkWrite}
+			}
+			
+			utils.LogInfo("Successfully created chunk %d: %s", chunkNum, chunkFileName)
+			
+			chunks = append(chunks, Chunk{
+				Index:    chunkNum + 1,
+				Offset:   int64(chunkNum) * fc.chunkSize,
+				Size:     int64(n),
+				FilePath: filePath,
+			})
+			chunkNum++
+		}
+		if err == io.EOF {
+			utils.LogInfo("Reached end of file, total chunks created: %d", chunkNum)
 			break
 		}
-
-		chunkSize := fc.chunkSize
-		if remaining < chunkSize {
-			chunkSize = remaining
+		if err != nil {
+			utils.LogError("Failed to read file: %s, error: %v", filePath, err)
+			utils.LogWarning("Rolling back %d previously created chunks", chunkNum)
+			rollbackChunks(filePath, chunkNum)
+			return ChunkResult{Chunks: nil, Error: ErrorFileRead}
 		}
-
-		chunks = append(chunks, Chunk{
-			Index:    i + 1, // S3 part numbers start from 1
-			Offset:   offset,
-			Size:     chunkSize,
-			FilePath: fc.filePath,
-		})
 	}
-	return chunks
+	
+	utils.LogInfo("File chunking completed successfully: %s, total chunks: %d", filePath, len(chunks))
+	return ChunkResult{Chunks: chunks, Error: ErrorNone}
 }
+
+/*
+author : popeye
+description : write chunk to file
+return : error
+*/
+func writeChunk(filename string, data []byte) error {
+	// Create chunks directory inside chunker directory if it doesn't exist
+	if err := createChunksDirectory(chunksDir); err != nil {
+		return err
+	}
+
+	// Create full path for chunk file
+	chunkFilePath := filepath.Join(chunksDir, filename)
+	
+	// Write chunk data to file
+	if err := os.WriteFile(chunkFilePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write chunk file %s: %w", chunkFilePath, err)
+	}
+	
+	return nil
+}
+
+// createChunksDirectory creates the chunks directory if it doesn't exist
+func createChunksDirectory(chunksDir string) error {
+	if err := os.MkdirAll(chunksDir, 0755); err != nil {
+		return fmt.Errorf("failed to create chunks directory: %w", err)
+	}
+	return nil
+}
+
+/*
+author : popeye
+description : removes all chunk files that were created during the failed operation
+return : void
+*/
+func rollbackChunks(filePath string, chunkCount int) {
+	chunksDir := config.ChunksDir
+	baseFileName := filepath.Base(filePath)
+	
+	utils.LogWarning("Rolling back %d chunk files for %s", chunkCount, filePath)
+	
+	for i := 0; i < chunkCount; i++ {
+		chunkFileName := fmt.Sprintf("%s_chunk%d", baseFileName, i)
+		chunkFilePath := filepath.Join(chunksDir, chunkFileName)
+		
+		if err := os.Remove(chunkFilePath); err != nil {
+			utils.LogError("Failed to remove chunk file %s: %v", chunkFilePath, err)
+		} else {
+			utils.LogInfo("Removed chunk file: %s", chunkFileName)
+		}
+	}
+	
+	// If no chunks were created, remove the chunks directory
+	if chunkCount == 0 {
+		if err := os.RemoveAll(chunksDir); err != nil {
+			utils.LogError("Failed to remove chunks directory %s: %v", chunksDir, err)
+		} else {
+			utils.LogInfo("Removed chunks directory: %s", chunksDir)
+		}
+	}
+}
+
+/*
+author : greensnapback0229
+description : split a single file into chunks using splitFileToChunks
+return : error
+func SplitSingleFile(filePath string) error {
+	result := splitFileToChunks(filePath)
+	if result.Error != ErrorNone {
+		return fmt.Errorf("failed to split file %s: %s", filePath, result.Error)
+	}
+	return nil
+} */
+
+/*
+author : greensnapback0229
+description : split all regular files in the given directory into chunks using splitFileToChunks
+return : error
+
+func SplitAllFilesInDir(dirPath string) error {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return fmt.Errorf("failed to read directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.Type().IsRegular() {
+			filePath := filepath.Join(dirPath, entry.Name())
+			result := splitFileToChunks(filePath)
+			if result.Error != ErrorNone {
+				return fmt.Errorf("failed to split file %s: %s", filePath, result.Error)
+			}
+		}
+	}
+	return nil
+} */
 
 // ChunkReader implements io.ReadSeekCloser for a specific file chunk.
 type ChunkReader struct {
@@ -131,28 +305,94 @@ func (cr *ChunkReader) Close() error {
 }
 
 // GetChunkReader returns an io.ReadSeekCloser for a specific chunk.
-// It opens the file for each chunk to ensure proper seeking and closing.
+/*
+author : popeye
+description : returns an io.ReadSeekCloser for a specific chunk
+return : io.ReadSeekCloser, error
+*/
 func (fc *FileChunker) GetChunkReader(chunk Chunk) (io.ReadSeekCloser, error) {
-	file, err := os.Open(fc.filePath)
+	// Create chunk file path based on the chunk index
+	chunkFileName := fmt.Sprintf("%s_chunk%d", filepath.Base(chunk.FilePath), chunk.Index-1)
+	chunkFilePath := filepath.Join(chunksDir, chunkFileName)
+	
+	// Open the chunk file
+	file, err := os.Open(chunkFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file for chunk reader: %w", err)
+		return nil, fmt.Errorf("failed to open chunk file %s: %w", chunkFilePath, err)
 	}
 
 	// Create a new ChunkReader instance
 	cr := &ChunkReader{
 		file:   file,
-		offset: chunk.Offset,
+		offset: 0, // Chunk files start from offset 0
 		size:   chunk.Size,
 		read:   0,
 	}
 
-	// Seek to the start of the chunk immediately after opening the file
-	// This ensures that subsequent Reads from the ChunkReader start from the correct position.
-	_, err = cr.file.Seek(chunk.Offset, io.SeekStart)
-	if err != nil {
-		cr.Close() // Close the file if seek fails
-		return nil, fmt.Errorf("failed to seek to chunk offset %d: %w", chunk.Offset, err)
-	}
-
 	return cr, nil
+}
+
+/*
+author : popeye
+description : removes all chunk files that were created for the current file
+return : error
+*/
+func (fc *FileChunker) CleanupChunks() error {
+	utils.LogInfo("Starting cleanup of chunk files for: %s", fc.filePath)
+	
+	baseFileName := filepath.Base(fc.filePath)
+	chunksDir := chunksDir
+	
+	// Get the list of chunk files
+	entries, err := os.ReadDir(chunksDir)
+	if err != nil {
+		utils.LogError("Failed to read chunks directory %s: %v", chunksDir, err)
+		return fmt.Errorf("failed to read chunks directory: %w", err)
+	}
+	
+	// Count and remove chunk files for this specific file
+	removedCount := 0
+	for _, entry := range entries {
+		if entry.Type().IsRegular() {
+			fileName := entry.Name()
+			// Check if this chunk file belongs to our file
+			if strings.HasPrefix(fileName, baseFileName+"_chunk") {
+				chunkFilePath := filepath.Join(chunksDir, fileName)
+				if err := os.Remove(chunkFilePath); err != nil {
+					utils.LogError("Failed to remove chunk file %s: %v", chunkFilePath, err)
+					return fmt.Errorf("failed to remove chunk file %s: %w", chunkFilePath, err)
+				}
+				utils.LogInfo("Removed chunk file: %s", fileName)
+				removedCount++
+			}
+		}
+	}
+	
+	utils.LogInfo("Successfully removed %d chunk files for: %s", removedCount, fc.filePath)
+	
+	// If no chunk files remain in the directory, remove the chunks directory itself
+	remainingEntries, err := os.ReadDir(chunksDir)
+	if err != nil {
+		utils.LogWarning("Failed to check remaining entries in chunks directory: %v", err)
+		return nil // Don't fail cleanup if we can't check remaining files
+	}
+	
+	// Check if only directories remain (no regular files)
+	hasRegularFiles := false
+	for _, entry := range remainingEntries {
+		if entry.Type().IsRegular() {
+			hasRegularFiles = true
+			break
+		}
+	}
+	
+	if !hasRegularFiles {
+		if err := os.RemoveAll(chunksDir); err != nil {
+			utils.LogWarning("Failed to remove empty chunks directory %s: %v", chunksDir, err)
+		} else {
+			utils.LogInfo("Removed empty chunks directory: %s", chunksDir)
+		}
+	}
+	
+	return nil
 }

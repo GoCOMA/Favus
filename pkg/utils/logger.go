@@ -3,9 +3,10 @@ package utils
 import (
 	"log"
 	"os"
+	"github.com/GoCOMA/Favus/internal/config"
 )
 
-const LogFilePath = "./favus.log"
+var LogFilePath = config.LogFilePath
 
 var logFile *os.File
 var logger *log.Logger

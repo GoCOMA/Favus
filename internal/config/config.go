@@ -18,6 +18,7 @@ const (
 
 // Backward-compatibility for develop branch users of config.DefaultChunkSize (bytes)
 var DefaultChunkSize int64 = int64(defaultPartSizeMB) * 1024 * 1024
+var ChunksDir string = "./chunks"
 
 type Config struct {
 	Bucket         string `mapstructure:"bucket"`

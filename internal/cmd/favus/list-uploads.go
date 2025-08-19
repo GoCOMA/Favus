@@ -1,6 +1,8 @@
 package favus
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -9,6 +11,11 @@ import (
 	"github.com/GoCOMA/Favus/internal/wsagent"
 	"github.com/spf13/cobra"
 )
+
+func mustJSON(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
+}
 
 var (
 	listBucket string // optional; overrides config/ENV
@@ -47,13 +54,20 @@ var listUploadsCmd = &cobra.Command{
 			return fmt.Errorf("list multipart uploads: %w", err)
 		}
 
+		addr := wsagent.DefaultAddr()
+
 		if len(items) == 0 {
 			fmt.Println("No ongoing multipart uploads.")
 
 			// UI에도 전송
-			wsagent.SendEvent(cmd.Context(), "list-uploads", map[string]any{
-				"bucket": conf.Bucket,
-				"items":  []map[string]string{},
+			_ = wsagent.SendEvent(context.Background(), addr, wsagent.Event{
+				Type:      "list-uploads",
+				RunID:     "",
+				Timestamp: time.Now(),
+				Payload: mustJSON(map[string]any{
+					"bucket": conf.Bucket,
+					"items":  []map[string]string{},
+				}),
 			})
 			return nil
 		}
@@ -89,9 +103,14 @@ var listUploadsCmd = &cobra.Command{
 		}
 
 		// UI 브라우저로 전송
-		wsagent.SendEvent(cmd.Context(), "list-uploads", map[string]any{
-			"bucket": conf.Bucket,
-			"items":  uiItems,
+		_ = wsagent.SendEvent(cmd.Context(), addr, wsagent.Event{
+			Type:      "list-uploads",
+			RunID:     "",
+			Timestamp: time.Now(),
+			Payload: mustJSON(map[string]any{
+				"bucket": conf.Bucket,
+				"items":  uiItems,
+			}),
 		})
 
 		return nil

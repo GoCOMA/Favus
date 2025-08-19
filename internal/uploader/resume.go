@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/GoCOMA/Favus/internal/chunker"
+	"github.com/GoCOMA/Favus/internal/wsagent"
 	"github.com/GoCOMA/Favus/pkg/utils"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -165,8 +166,17 @@ func (ru *ResumeUploader) ResumeUpload(statusFilePath string) error {
 		pr := NewReadSeekCloserProgress(reader, func(n int64) {
 			_ = partBar.Add64(n)
 			_ = totalBar.Add64(n)
-			r.progressAdd(n)               // 전체
-			r.partProgressAdd(ch.Index, n) // 파트
+			r.progressAdd(n)
+			r.partProgressAdd(ch.Index, n)
+
+			// wsagent 이벤트도 여기서
+			ev := wsagent.Event{
+				Type:      "progress",
+				RunID:     r.runID,
+				Timestamp: time.Now(),
+				Payload:   []byte(fmt.Sprintf(`{"bytes":%d}`, n)),
+			}
+			_ = wsagent.SendEvent(context.Background(), wsagent.DefaultAddr(), ev)
 		})
 
 		utils.Info(fmt.Sprintf("Uploading part %d (offset %d, size %d) for file %s",

@@ -155,6 +155,41 @@ func runUI(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3) 포그라운드 실행
+	script := filepath.Join("internal", "wsserver", "server.py")
+
+	if _, err := os.Stat(script); os.IsNotExist(err) {
+		return fmt.Errorf("FastAPI server script not found: %s", script)
+	}
+
+	// uvicorn 실행 (server:app 기준)
+	uvicornCmd := exec.Command("uvicorn", "internal.wsserver.server:app", "--host", "127.0.0.1", "--port", "8765")
+	uvicornCmd.Stdout = os.Stdout
+	uvicornCmd.Stderr = os.Stderr
+
+	if err := uvicornCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start FastAPI server: %w", err)
+	}
+
+	fmt.Printf("🚀 FastAPI server started with uvicorn (pid %d)\n", uvicornCmd.Process.Pid)
+
+	// --- 헬스체크 (최대 5초 대기) ---
+	healthz := "http://127.0.0.1:8765/healthz"
+	started := false
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(healthz)
+		if err == nil && resp.StatusCode == 200 {
+			_ = resp.Body.Close()
+			started = true
+			break
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	if !started {
+		return fmt.Errorf("FastAPI server did not become healthy in time")
+	}
+
+	// --- wsagent start ---
 	cfg := wsagent.AgentConfig{
 		Addr:       uiAddrFlag,
 		WSEndpoint: uiWSEndpoint,
@@ -185,6 +220,7 @@ func runUI(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = ag.Stop(ctx)
+	_ = uvicornCmd.Process.Kill() // FastAPI 서버도 같이 정리
 	fmt.Println("👋 UI agent stopped.")
 	return nil
 }

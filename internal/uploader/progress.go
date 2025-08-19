@@ -13,7 +13,7 @@ type ReadSeekCloserProgress struct {
 	reported int64
 }
 
-func NewReadSeekCloserProgress(r io.ReadSeekCloser, onDelta func(n int64)) *ReadSeekCloserProgress {
+func NewReadSeekCloserProgress(r io.ReadSeekCloser, onDelta func(int64)) *ReadSeekCloserProgress {
 	return &ReadSeekCloserProgress{r: r, onDelta: onDelta}
 }
 

@@ -35,6 +35,7 @@ func (wt *WSTracker) AddCompletedPart(partNumber int, eTag string) {
 
 	if wt.wsEnabled {
 		payload := map[string]any{
+			"key":  wt.UploadStatus.Key,
 			"part": partNumber,
 			"etag": eTag,
 		}
@@ -56,6 +57,7 @@ func (wt *WSTracker) SaveStatus(statusFilePath string) error {
 
 	if wt.wsEnabled {
 		payload := map[string]any{
+			"key":        wt.UploadStatus.Key,
 			"statusFile": statusFilePath,
 			"partsDone":  len(wt.UploadStatus.CompletedParts),
 			"totalParts": wt.UploadStatus.TotalParts,

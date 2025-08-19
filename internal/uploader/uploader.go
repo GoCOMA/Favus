@@ -11,6 +11,7 @@ import (
 
 	"github.com/GoCOMA/Favus/internal/chunker"
 	"github.com/GoCOMA/Favus/internal/config"
+	"github.com/GoCOMA/Favus/internal/wsagent"
 	"github.com/GoCOMA/Favus/pkg/utils"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -191,6 +192,14 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 			_ = totalBar.Add64(n)
 			r.progressAdd(n)
 			r.partProgressAdd(ch.Index, n)
+
+			ev := wsagent.Event{
+				Type:      "progress",
+				RunID:     r.runID,
+				Timestamp: time.Now(),
+				Payload:   []byte(fmt.Sprintf(`{"bytes":%d}`, n)),
+			}
+			_ = wsagent.SendEvent(context.Background(), wsagent.DefaultAddr(), ev)
 		})
 
 		utils.Info(fmt.Sprintf("Uploading part %d (offset %d, size %d) for file %s",

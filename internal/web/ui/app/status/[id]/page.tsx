@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-// 특정 업로드 상태 확인
-=======
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -12,29 +9,38 @@ import { StatusProgressBar } from './components/StatusProgressBar';
 import { StatusMessageBox } from './components/StatusMessageBox';
 import { StatusSpinner } from './components/StatusSpinner';
 import { useWebSocket } from '@/lib/contexts/WebSocketContext';
->>>>>>> parent of 5a8b1ac (Revert "feat: web/ui connect websocket")
 
 interface Props {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export default function StatusPage({ params }: Props) {
-<<<<<<< HEAD
-=======
   const router = useRouter();
   const { subscribe, unsubscribe } = useWebSocket();
   const [status, setStatus] = useState<UploadStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [resolvedParams, setResolvedParams] = useState<{ id: string } | null>(null);
+  
   useEffect(() => {
+    const resolveParams = async () => {
+      const resolved = await params;
+      setResolvedParams(resolved);
+    };
+    resolveParams();
+  }, [params]);
+  
+  useEffect(() => {
+    if (!resolvedParams) return;
+    
     const fetchInitial = async () => {
       try {
-        const res = await getUploadStatus(params.id);
+        const res = await getUploadStatus(resolvedParams.id);
         setStatus(res);
         // 업로드가 완료되면 결과 페이지로 이동
         if (res.status === 'completed') {
           setTimeout(() => {
-            router.push(`/result/${params.id}`);
+            router.push(`/result/${resolvedParams.id}`);
           }, 1000); // 1초 후 결과 페이지로 이동
           return;
         }
@@ -56,10 +62,11 @@ export default function StatusPage({ params }: Props) {
 
     // 초기 로드
     fetchInitial();
-  }, [params.id, router]);
+  }, [resolvedParams, router]);
 
   useEffect(() => {
     if (
+      !resolvedParams ||
       !status ||
       !['pending', 'uploading', 'processing'].includes(status.status)
     )
@@ -89,18 +96,18 @@ export default function StatusPage({ params }: Props) {
       }
     };
 
-    subscribe(params.id, handleProgressMessage);
+    subscribe(resolvedParams.id, handleProgressMessage);
 
     // 폴백: 2초마다 상태 업데이트 (WebSocket 메시지가 없을 때)
     const interval = setInterval(() => {
-      getUploadStatus(params.id).then(setStatus).catch(console.error);
+      getUploadStatus(resolvedParams.id).then(setStatus).catch(console.error);
     }, 2000);
 
     return () => {
-      unsubscribe(params.id);
+      unsubscribe(resolvedParams.id);
       clearInterval(interval);
     };
-  }, [status?.status, params.id, subscribe, unsubscribe]);
+  }, [status?.status, resolvedParams, subscribe, unsubscribe]);
 
   if (loading) {
     return (
@@ -160,7 +167,7 @@ export default function StatusPage({ params }: Props) {
               <h1 className="text-2xl font-bold text-gray-900 mb-2">
                 업로드 정보를 찾을 수 없습니다
               </h1>
-              <p className="text-gray-600 mb-6">ID: {params.id}</p>
+              <p className="text-gray-600 mb-6">ID: {resolvedParams?.id || 'Loading...'}</p>
               <div className="space-y-3">
                 <button
                   onClick={() => router.push('/upload')}
@@ -182,7 +189,6 @@ export default function StatusPage({ params }: Props) {
     );
   }
 
->>>>>>> parent of 5a8b1ac (Revert "feat: web/ui connect websocket")
   return (
     <main className="min-h-screen bg-gray-50 py-12">
       <div className="max-w-2xl mx-auto px-4">

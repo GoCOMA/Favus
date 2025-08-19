@@ -17,7 +17,6 @@ import { TimeInfo } from './components/TimeInfo';
 import { ErrorFallback } from './components/ErrorFallback';
 import { LoadingFallback } from './components/LoadingFallback';
 import { BatchErrorFallback } from './components/BatchErrorFallback';
-import { useWebSocket } from '@/lib/context/WebSocketContext';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -26,7 +25,6 @@ interface Props {
 export default function ResultPage({ params }: Props) {
   const router = useRouter();
   const { id } = use(params);
-  const webSocket = useWebSocket();
   const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,52 +120,67 @@ export default function ResultPage({ params }: Props) {
   };
 
   useEffect(() => {
-    // WebSocket 구독으로 실시간 파일별 진행률 업데이트
-    const handleProgressUpdate = ({ runId, payload }: { runId: string, payload: any }) => {
-      if (runId === id) {
-        console.log(`[BATCH ${runId}] progress update: ${payload.bytes} bytes`);
+    // WebSocket 연결로 실시간 파일별 진행률 업데이트
+    const ws = new WebSocket("ws://localhost:8000/ws");
+
+    ws.onopen = () => {
+      console.log("✅ WebSocket connected for batch progress tracking");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
         
-        setBatchResult(prev => {
-          if (!prev) return null;
+        if (data.Type === "progress" && data.RunID === id) {
+          const payload = JSON.parse(data.Payload);
+          console.log(`[BATCH ${data.RunID}] progress update: ${payload.bytes} bytes`);
           
-          // 현재 처리 중인 파일들의 진행률 업데이트
-          const updatedFiles = prev.files.map(file => {
-            if (file.status === 'processing') {
-              const newProgress = Math.min(
-                file.progress + Math.random() * 5 + 2,
-                100
-              );
-              
-              return {
-                ...file,
-                progress: newProgress,
-                status: newProgress >= 100 ? 'completed' as const : 'processing' as const
-              };
-            }
-            return file;
+          setBatchResult(prev => {
+            if (!prev) return null;
+            
+            // 현재 처리 중인 파일들의 진행률 업데이트
+            const updatedFiles = prev.files.map(file => {
+              if (file.status === 'processing') {
+                const newProgress = Math.min(
+                  file.progress + Math.random() * 5 + 2,
+                  100
+                );
+                
+                return {
+                  ...file,
+                  progress: newProgress,
+                  status: newProgress >= 100 ? 'completed' : 'processing'
+                };
+              }
+              return file;
+            });
+            
+            // 전체 진행률 재계산
+            const completedFiles = updatedFiles.filter(f => f.status === 'completed').length;
+            const overallProgress = (completedFiles / updatedFiles.length) * 100;
+            
+            return {
+              ...prev,
+              files: updatedFiles,
+              completedFiles,
+              overallProgress: Math.round(overallProgress)
+            };
           });
-          
-          // 전체 진행률 재계산
-          const completedFiles = updatedFiles.filter(f => f.status === 'completed').length;
-          const overallProgress = (completedFiles / updatedFiles.length) * 100;
-          
-          return {
-            ...prev,
-            files: updatedFiles,
-            completedFiles,
-            overallProgress: Math.round(overallProgress)
-          };
-        });
+        }
+      } catch (err) {
+        console.error("WebSocket message parsing error:", err);
       }
     };
 
-    webSocket.subscribe(id, handleProgressUpdate);
+    ws.onclose = () => {
+      console.log("❌ WebSocket disconnected");
+    };
 
     return () => {
-      webSocket.unsubscribe(id);
+      ws.close();
       stopBatchSimulation(id);
     };
-  }, [id, webSocket]);
+  }, [id]);
 
   if (loading) return <LoadingFallback />;
   if (error) return <ErrorFallback error={error} id={id} router={router} />;

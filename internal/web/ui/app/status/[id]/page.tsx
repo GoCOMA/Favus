@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getUploadStatus } from '@/lib/api/uploadApi';
 import type { UploadStatus } from '@/lib/types';
@@ -8,16 +8,13 @@ import { getStatusColor, getStatusText } from '@/lib/utils';
 import { StatusProgressBar } from './components/StatusProgressBar';
 import { StatusMessageBox } from './components/StatusMessageBox';
 import { StatusSpinner } from './components/StatusSpinner';
-import { useWebSocket } from '@/lib/context/WebSocketContext';
 
 interface Props {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }
 
 export default function StatusPage({ params }: Props) {
   const router = useRouter();
-  const webSocket = useWebSocket();
-  const { id } = use(params);
   const [status, setStatus] = useState<UploadStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -25,12 +22,12 @@ export default function StatusPage({ params }: Props) {
   useEffect(() => {
     const fetchInitial = async () => {
       try {
-        const res = await getUploadStatus(id);
+        const res = await getUploadStatus(params.id);
         setStatus(res);
         // 업로드가 완료되면 결과 페이지로 이동
         if (res.status === 'completed') {
           setTimeout(() => {
-            router.push(`/result/${id}`);
+            router.push(`/result/${params.id}`);
           }, 1000); // 1초 후 결과 페이지로 이동
           return;
         }
@@ -52,7 +49,7 @@ export default function StatusPage({ params }: Props) {
 
     // 초기 로드
     fetchInitial();
-  }, [id, router]);
+  }, [params.id, router]);
 
   useEffect(() => {
     if (
@@ -61,43 +58,56 @@ export default function StatusPage({ params }: Props) {
     )
       return;
 
-    // WebSocket 구독으로 실시간 진행률 업데이트
-    const handleProgressUpdate = ({ runId, payload }: { runId: string, payload: any }) => {
-      if (runId === id) {
-        console.log(`[RUN ${runId}] uploaded ${payload.bytes} bytes`);
+    // WebSocket 연결로 실시간 진행률 업데이트
+    const ws = new WebSocket("ws://localhost:8000/ws");
+
+    ws.onopen = () => {
+      console.log("✅ WebSocket connected for progress tracking");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
         
-        // 업로드된 바이트를 기반으로 진행률 계산 (가정: 전체 크기 대비)
-        const estimatedProgress = Math.min(
-          Math.floor((payload.bytes / (10 * 1024 * 1024)) * 100), // 10MB 가정
-          100
-        );
-        
-        setStatus(prev => prev ? {
-          ...prev,
-          progress: estimatedProgress,
-          message: `${(payload.bytes / 1024 / 1024).toFixed(2)}MB 업로드 완료`
-        } : null);
+        if (data.Type === "progress" && data.RunID === params.id) {
+          const payload = JSON.parse(data.Payload);
+          console.log(`[RUN ${data.RunID}] uploaded ${payload.bytes} bytes`);
+          
+          // 업로드된 바이트를 기반으로 진행률 계산 (가정: 전체 크기 대비)
+          const estimatedProgress = Math.min(
+            Math.floor((payload.bytes / (10 * 1024 * 1024)) * 100), // 10MB 가정
+            100
+          );
+          
+          setStatus(prev => prev ? {
+            ...prev,
+            progress: estimatedProgress,
+            message: `${(payload.bytes / 1024 / 1024).toFixed(2)}MB 업로드 완료`
+          } : null);
+        }
+      } catch (err) {
+        console.error("WebSocket message parsing error:", err);
       }
     };
 
-    webSocket.subscribe(id, handleProgressUpdate);
+    ws.onclose = () => {
+      console.log("❌ WebSocket disconnected");
+    };
 
-    // WebSocket 연결 실패 시 폴백: 2초마다 상태 업데이트
-    if (!webSocket.isConnected) {
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      // WebSocket 실패 시 폴백: 2초마다 상태 업데이트
       const interval = setInterval(() => {
-        getUploadStatus(id).then(setStatus).catch(console.error);
+        getUploadStatus(params.id).then(setStatus).catch(console.error);
       }, 2000);
       
-      return () => {
-        webSocket.unsubscribe(id);
-        clearInterval(interval);
-      };
-    }
+      return () => clearInterval(interval);
+    };
 
     return () => {
-      webSocket.unsubscribe(id);
+      ws.close();
     };
-  }, [status?.status, id, webSocket]);
+  }, [status?.status, params.id]);
 
   if (loading) {
     return (
@@ -157,7 +167,7 @@ export default function StatusPage({ params }: Props) {
               <h1 className="text-2xl font-bold text-gray-900 mb-2">
                 업로드 정보를 찾을 수 없습니다
               </h1>
-              <p className="text-gray-600 mb-6">ID: {id}</p>
+              <p className="text-gray-600 mb-6">ID: {params.id}</p>
               <div className="space-y-3">
                 <button
                   onClick={() => router.push('/upload')}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useWebSocket } from '@/lib/contexts/MockWebSocketContext';
+import { useWebSocket } from '@/lib/contexts/WebSocketContext';
 
 type Status = 'uploading' | 'completed' | 'failed';
 

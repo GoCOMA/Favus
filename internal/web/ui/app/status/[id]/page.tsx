@@ -20,8 +20,10 @@ export default function StatusPage({ params }: Props) {
   const [status, setStatus] = useState<UploadStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [resolvedParams, setResolvedParams] = useState<{ id: string } | null>(null);
-  
+  const [resolvedParams, setResolvedParams] = useState<{ id: string } | null>(
+    null,
+  );
+
   useEffect(() => {
     const resolveParams = async () => {
       const resolved = await params;
@@ -29,10 +31,10 @@ export default function StatusPage({ params }: Props) {
     };
     resolveParams();
   }, [params]);
-  
+
   useEffect(() => {
     if (!resolvedParams) return;
-    
+
     const fetchInitial = async () => {
       try {
         const res = await getUploadStatus(resolvedParams.id);
@@ -74,24 +76,28 @@ export default function StatusPage({ params }: Props) {
 
     // 글로벌 WebSocket을 통한 실시간 진행률 업데이트
     const handleProgressMessage = (message: any) => {
-      if (message.Type === "progress") {
+      if (message.Type === 'progress') {
         try {
           const payload = JSON.parse(message.Payload);
           console.log(`[RUN ${message.RunID}] uploaded ${payload.bytes} bytes`);
-          
+
           // 업로드된 바이트를 기반으로 진행률 계산 (가정: 전체 크기 대비)
           const estimatedProgress = Math.min(
             Math.floor((payload.bytes / (10 * 1024 * 1024)) * 100), // 10MB 가정
-            100
+            100,
           );
-          
-          setStatus(prev => prev ? {
-            ...prev,
-            progress: estimatedProgress,
-            message: `${(payload.bytes / 1024 / 1024).toFixed(2)}MB 업로드 완료`
-          } : null);
+
+          setStatus((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  progress: estimatedProgress,
+                  message: `${(payload.bytes / 1024 / 1024).toFixed(2)}MB 업로드 완료`,
+                }
+              : null,
+          );
         } catch (err) {
-          console.error("Failed to parse progress payload:", err);
+          console.error('Failed to parse progress payload:', err);
         }
       }
     };
@@ -167,7 +173,9 @@ export default function StatusPage({ params }: Props) {
               <h1 className="text-2xl font-bold text-gray-900 mb-2">
                 업로드 정보를 찾을 수 없습니다
               </h1>
-              <p className="text-gray-600 mb-6">ID: {resolvedParams?.id || 'Loading...'}</p>
+              <p className="text-gray-600 mb-6">
+                ID: {resolvedParams?.id || 'Loading...'}
+              </p>
               <div className="space-y-3">
                 <button
                   onClick={() => router.push('/upload')}

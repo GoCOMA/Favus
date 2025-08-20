@@ -21,7 +21,7 @@ export default function HomePage() {
           <UploadStatusList />
         </div>
 
-        <FeatureGrid />
+        {/* <FeatureGrid /> */}
       </div>
     </main>
   );

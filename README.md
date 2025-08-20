@@ -1,15 +1,5 @@
 # Favus — S3 Multipart Upload CLI & Web UI
 
-_Submission for the 2025 Open-Source Developer Contest_
-
-**Repo:** [https://github.com/GoCOMA/Favus](https://github.com/GoCOMA/Favus)
-
-**Team:** GoCOMA — Junseok Oh, Jinho Seo, Jiwon Jang, Kyuwon Kim, Dongjun Lee, Seungjun Seo, Seunghwan Cheon
-
-**Track:** General / Open Topic
-
----
-
 ## Table of Contents
 
 - [Overview](#overview)

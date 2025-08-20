@@ -3,7 +3,9 @@
 _Submission for the 2025 Open-Source Developer Contest_
 
 **Repo:** [https://github.com/GoCOMA/Favus](https://github.com/GoCOMA/Favus)
+
 **Team:** GoCOMA — Junseok Oh, Jinho Seo, Jiwon Jang, Kyuwon Kim, Dongjun Lee, Seungjun Seo, Seunghwan Cheon
+
 **Track:** General / Open Topic
 
 ---
@@ -71,7 +73,7 @@ Multipart upload to S3 is efficient, but partial failures often leave **invisibl
 
 ## Architecture
 
-```mermaid
+```
 flowchart LR
     U[User (CLI/Web)] --> C[Go CLI]
     C -- Events --> L[Local Agent]
@@ -109,7 +111,7 @@ flowchart LR
 ### Install dependencies
 
 ```bash
-# from repo root (or ui/)
+# from repo root (or internal/web/ui/)
 npm install
 # or
 pnpm install
@@ -161,7 +163,7 @@ favus rm-orphans s3://your-bucket/path/
 
 The Web UI subscribes to a WebSocket for events emitted by the CLI/agent chain.
 
-### WebSocket provider (current)
+### WebSocket provider
 
 The default provider uses `ws://127.0.0.1:8765/ws` and **normalizes** messages to:
 
@@ -194,31 +196,6 @@ It supports:
 
 - `UploadStatusList` renders one card per run (filename, status, overall %, **vertical part list**).
 - Colors: **Blue** (completed), **Red** (failed), **Gray** (pending).
-
-### Mock mode (no backend)
-
-Use a mock provider & dev panel to simulate events:
-
-```tsx
-// app/dev-upload/page.tsx
-"use client";
-import { MockWebSocketProvider } from "@/lib/contexts/MockWebSocketContext";
-import MockUploadDevPanel from "@/components/MockUploadDevPanel";
-import UploadStatusList from "@/components/UploadStatusList";
-
-export default function DevUploadPage() {
-  return (
-    <MockWebSocketProvider>
-      <main className="p-6 max-w-4xl mx-auto space-y-4">
-        <MockUploadDevPanel /> {/* emits session_start/part_done/error/done */}
-        <UploadStatusList />
-      </main>
-    </MockWebSocketProvider>
-  );
-}
-```
-
-> Ensure `UploadStatusList` imports `useWebSocket` from the **same** provider (mock vs real) or no messages will arrive.
 
 ---
 

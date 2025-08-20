@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useWebSocket } from '@/lib/contexts/WebSocketContext';
+import { useWebSocket } from '@/lib/contexts/MockWebSocketContext';
 
 type Status = 'uploading' | 'completed' | 'failed';
 
@@ -128,7 +128,7 @@ export default function UploadStatusList() {
   }, [subscribe, unsubscribe]);
 
   const renderStatusPill = (status: UploadState['status']) => {
-    const baseClasses = 'px-3 py-1 text-sm font-semibold rounded-full';
+    const baseClasses = 'px-3 py-1 text-xs font-semibold rounded-full';
     if (status === 'uploading')
       return (
         <span className={`${baseClasses} bg-blue-100 text-blue-800`}>
@@ -156,7 +156,7 @@ export default function UploadStatusList() {
     failed: Set<number>;
   }) => {
     return (
-      <div className="mt-2 rounded border border-gray-200 p-2 max-h-80 overflow-auto">
+      <div className="mt-2 px-4 rounded border border-gray-200 overflow-auto">
         <ul className="space-y-1">
           {Array.from({ length: total }, (_, i) => {
             const partNo = i + 1;
@@ -176,14 +176,14 @@ export default function UploadStatusList() {
             return (
               <li
                 key={partNo}
-                className="flex items-center gap-2"
+                className="my-3 flex items-center gap-2"
                 title={title}
               >
-                <span className="w-14 shrink-0 text-[11px] text-gray-500">
+                <span className="w-14 shrink-0 text-[14px] text-gray-500">
                   #{partNo}
                 </span>
-                <div className="h-2 w-full rounded-sm">
-                  <div className={`h-2 w-full rounded-sm ${cls}`} />
+                <div className="h-3 w-full rounded-sm">
+                  <div className={`h-3 w-full rounded-sm ${cls}`} />
                 </div>
               </li>
             );
@@ -191,7 +191,7 @@ export default function UploadStatusList() {
         </ul>
 
         {/* 범례 */}
-        <div className="flex items-center gap-3 mt-2 text-[11px] text-gray-500">
+        <div className="flex items-center gap-3 my-3 text-[11px] text-gray-500">
           <span className="inline-flex items-center gap-1">
             <i className="inline-block w-3 h-2 rounded-sm bg-blue-600" /> 완료
           </span>
@@ -237,7 +237,7 @@ export default function UploadStatusList() {
                 {renderStatusPill(upload.status)}
               </div>
 
-              <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+              <div className="my-4 flex items-center justify-between text-xs text-gray-500">
                 <span>
                   {upload.completedParts.size} / {upload.totalParts} 파트
                 </span>

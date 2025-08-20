@@ -1,96 +1,50 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Body
-import boto3, os, asyncio
-from typing import List, Set
-from pydantic import BaseModel
+import asyncio
+import websockets
+import logging
 
-app = FastAPI()
+logging.basicConfig(level=logging.INFO)
 
-# ================== S3 =====================
-s3 = boto3.client(
-    "s3",
-    aws_access_key_id="test",  # dummy 값
-    aws_secret_access_key="test",
-    region_name="ap-northeast-2",
-    endpoint_url="http://localhost:4566",  # LocalStack
-)
+CONNECTED_CLIENTS = set()
 
-@app.get("/healthz")
-def healthz():
-    return {"status": "ok"}
+async def handler(connection: websockets.ServerConnection):
+    CONNECTED_CLIENTS.add(connection)
+    print(f"✅ Client connected: {connection.remote_address}")
 
-@app.post("/create-upload")
-def create_upload(bucket: str = Query(...), filename: str = Query(...)):
-    resp = s3.create_multipart_upload(Bucket=bucket, Key=filename)
-    return {"bucket": bucket, "key": filename, "uploadId": resp["UploadId"]}
-
-@app.post("/presign-part")
-def presign_part(
-    bucket: str = Query(...),
-    key: str = Query(...),
-    upload_id: str = Query(...),
-    part_number: int = Query(...),
-    expires_in: int = Query(3600),
-):
-    url = s3.generate_presigned_url(
-        "upload_part",
-        Params={
-            "Bucket": bucket,
-            "Key": key,
-            "UploadId": upload_id,
-            "PartNumber": part_number,
-        },
-        ExpiresIn=expires_in,
-    )
-    return {"url": url, "partNumber": part_number}
-
-class Part(BaseModel):
-    ETag: str
-    PartNumber: int
-
-@app.post("/complete-upload")
-def complete_upload(
-    bucket: str = Query(...),
-    key: str = Query(...),
-    upload_id: str = Query(...),
-    parts: List[Part] = Body(...),
-):
-    resp = s3.complete_multipart_upload(
-        Bucket=bucket,
-        Key=key,
-        UploadId=upload_id,
-        MultipartUpload={"Parts": [p.dict() for p in parts]},
-    )
-    return {"location": resp["Location"]}
-
-
-# ================== WebSocket =====================
-clients: Set[WebSocket] = set()
-lock = asyncio.Lock()
-
-async def broadcast(message: str, sender: WebSocket = None):
-    """모든 연결된 클라이언트에게 메시지 전송"""
-    async with lock:
-        dead = []
-        for client in clients:
-            if client == sender:
-                continue
-            try:
-                await client.send_text(message)
-            except Exception:
-                dead.append(client)
-        for d in dead:
-            clients.remove(d)
-
-@app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
-    await ws.accept()
-    async with lock:
-        clients.add(ws)
     try:
-        while True:
-            data = await ws.receive_text()  # CLI에서 보내는 JSON(progress 등)
-            # 모든 프론트로 broadcast
-            await broadcast(data, sender=ws)
-    except WebSocketDisconnect:
-        async with lock:
-            clients.remove(ws)
+        async for message in connection:
+            print(f"📩 Received: {message}")
+            # 브로드캐스트 (보낸 사람 제외, 열린 연결만)
+            for client in CONNECTED_CLIENTS:
+                if client != connection and client.state.name == "OPEN":
+                    try:
+                        await client.send(message)
+                        # print(f"📤 Sent to {client.remote_address}: {message}")
+                    except websockets.ConnectionClosed as e:
+                        print(f"⚠️ Send failed to {client.remote_address}: {e}")
+                    except Exception as e:
+                        print(f"⚠️ Send failed with other error to {client.remote_address}: {e}")
+
+    except websockets.ConnectionClosed:
+        print(f"❌ Client disconnected: {connection.remote_address}")
+    finally:
+        CONNECTED_CLIENTS.remove(connection)
+
+
+async def process_request(path, request_headers):
+    logging.info(f"Request headers: {request_headers}")
+    return None  # 계속 진행
+
+async def main():
+    async with websockets.serve(
+        handler,
+        "127.0.0.1",
+        8765,
+        process_request=process_request,
+        origins=["http://localhost:3000", None],
+        ping_interval=None, # 클라이언트 ping에만 의존
+    ):
+        logging.info("🚀 WebSocket server running at ws://127.0.0.1:8765/ws")
+        await asyncio.Future()  # 서버 계속 실행
+
+if __name__ == "__main__":
+    asyncio.run(main())

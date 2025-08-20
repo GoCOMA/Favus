@@ -1,8 +1,6 @@
 'use client';
 
-import CliUploadCard from '@/app/(home)/components/CliUploadCard';
-import ResultCard from '@/app/(home)/components/ResultCard';
-import MockDataInitializer from '@/app/(home)/components/MockDataInitializer';
+import UploadStatusList from '@/app/(home)/components/UploadStatusList';
 import FeatureGrid from '@/app/(home)/components/FeatureGrid';
 
 //홈 화면
@@ -19,12 +17,10 @@ export default function HomePage() {
           </p>
         </div>
 
-        <div className="max-w-2xl mx-auto">
-          <CliUploadCard />
-          <ResultCard />
+        <div className="max-w-4xl mx-auto">
+          <UploadStatusList />
         </div>
 
-        <MockDataInitializer />
         <FeatureGrid />
       </div>
     </main>

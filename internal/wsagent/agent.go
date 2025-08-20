@@ -42,22 +42,53 @@ type Event struct {
 // CLI가 에이전트에 이벤트를 넘길 때 사용할 헬퍼.
 // addr: 보통 DefaultAddr() 또는 사용자가 지정한 --addr
 // ev:   Event 또는 임의의 구조체(map[string]any 등) — JSON으로 직렬화됨
+// func SendEvent(ctx context.Context, addr string, ev any) error {
+// 	b, err := json.Marshal(ev)
+// 	if err != nil {
+// 		return fmt.Errorf("wsagent: marshal event: %w", err)
+// 	}
+// 	url := "http://" + addr + "/event"
+// 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
+// 	if err != nil {
+// 		return fmt.Errorf("wsagent: build request: %w", err)
+// 	}
+// 	req.Header.Set("Content-Type", "application/json")
+// 	res, err := http.DefaultClient.Do(req)
+// 	if err != nil {
+// 		return fmt.Errorf("wsagent: post /event: %w", err)
+// 	}
+// 	defer res.Body.Close()
+// 	if res.StatusCode/100 != 2 {
+// 		body, _ := io.ReadAll(res.Body)
+// 		return fmt.Errorf("wsagent: /event status %d: %s", res.StatusCode, string(body))
+// 	}
+// 	return nil
+// }
+
 func SendEvent(ctx context.Context, addr string, ev any) error {
 	b, err := json.Marshal(ev)
 	if err != nil {
 		return fmt.Errorf("wsagent: marshal event: %w", err)
 	}
 	url := "http://" + addr + "/event"
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
 	if err != nil {
 		return fmt.Errorf("wsagent: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	res, err := http.DefaultClient.Do(req)
+
+	// 요청마다 새로운 클라이언트 생성
+	client := &http.Client{
+		Timeout: 10 * time.Second, // 필요 시 적절히 조정
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("wsagent: post /event: %w", err)
 	}
 	defer res.Body.Close()
+
 	if res.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(res.Body)
 		return fmt.Errorf("wsagent: /event status %d: %s", res.StatusCode, string(body))

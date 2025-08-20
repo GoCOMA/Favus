@@ -158,38 +158,24 @@ func runUI(cmd *cobra.Command, args []string) error {
 	script := filepath.Join("internal", "wsserver", "server.py")
 
 	if _, err := os.Stat(script); os.IsNotExist(err) {
-		return fmt.Errorf("FastAPI server script not found: %s", script)
+		return fmt.Errorf("server script not found: %s", script)
 	}
 
-	// uvicorn 실행 (server:app 기준)
-	uvicornCmd := exec.Command("uvicorn", "internal.wsserver.server:app", "--host", "127.0.0.1", "--port", "8765")
-	uvicornCmd.Stdout = os.Stdout
-	uvicornCmd.Stderr = os.Stderr
+	// WebSocket 서버 실행
+	wsCmd := exec.Command("python3", script)
+	wsCmd.Stdout = os.Stdout
+	wsCmd.Stderr = os.Stderr
 
-	if err := uvicornCmd.Start(); err != nil {
-		return fmt.Errorf("failed to start FastAPI server: %w", err)
+	if err := wsCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start WebSocket server: %w", err)
 	}
 
-	fmt.Printf("🚀 FastAPI server started with uvicorn (pid %d)\n", uvicornCmd.Process.Pid)
-
-	// --- 헬스체크 (최대 5초 대기) ---
-	healthz := "http://127.0.0.1:8765/healthz"
-	started := false
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		resp, err := http.Get(healthz)
-		if err == nil && resp.StatusCode == 200 {
-			_ = resp.Body.Close()
-			started = true
-			break
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-	if !started {
-		return fmt.Errorf("FastAPI server did not become healthy in time")
-	}
+	fmt.Printf("🚀 WebSocket server starting (pid %d)\n", wsCmd.Process.Pid)
 
 	// --- wsagent start ---
+	// 서버가 준비될 시간을 잠시 줌 (헬스체크 대신)
+	time.Sleep(2 * time.Second)
+
 	cfg := wsagent.AgentConfig{
 		Addr:       uiAddrFlag,
 		WSEndpoint: uiWSEndpoint,
@@ -220,7 +206,7 @@ func runUI(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = ag.Stop(ctx)
-	_ = uvicornCmd.Process.Kill() // FastAPI 서버도 같이 정리
+	_ = wsCmd.Process.Kill() // WebSocket 서버도 같이 정리
 	fmt.Println("👋 UI agent stopped.")
 	return nil
 }
@@ -253,7 +239,7 @@ func deriveUIURL(ws string) string {
 		// 못 파싱하면 그냥 원문 리턴(브라우저가 못 열겠지만…)
 		return ws
 	}
-	switch strings.ToLower(u.Scheme) {
+	switch strings.ToLower(u.Scheme) { // ✅ 여기 수정
 	case "ws":
 		u.Scheme = "http"
 	case "wss":

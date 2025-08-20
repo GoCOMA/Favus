@@ -283,6 +283,9 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 	utils.Info(fmt.Sprintf("Multipart upload completed successfully for %s", filePath))
 	r.done(true, uploadID)
 
+	// Add a small delay to ensure WebSocket messages are sent before exiting.
+	time.Sleep(1 * time.Second)
+
 	// Clean up status file
 	if err := os.Remove(statusFilePath); err != nil {
 		utils.Error(fmt.Sprintf("Failed to remove status file %s: %v", statusFilePath, err))

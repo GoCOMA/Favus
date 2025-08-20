@@ -3,6 +3,7 @@ package uploader
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"time"
 
@@ -55,6 +56,7 @@ func (r *wsReporter) send(evType string, payload any) {
 		return
 	}
 	b, _ := json.Marshal(payload)
+	fmt.Printf("[WS-DEBUG] send → type=%s payload=%s\n", evType, string(b))
 	_ = wsagent.SendEvent(context.Background(), r.addr, wsagent.Event{
 		Type:      evType,
 		RunID:     r.runID,

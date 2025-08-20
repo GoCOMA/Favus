@@ -2,6 +2,7 @@
 import './globals.css';
 import Link from 'next/link';
 import { ReactNode } from 'react';
+import { WebSocketProvider } from '@/lib/contexts/WebSocketContext';
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
@@ -14,7 +15,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <Link href="/upload/cli">CLI 안내</Link>
           </nav>
         </header>
-        <main>{children}</main>
+        <WebSocketProvider>
+          <main>{children}</main>
+        </WebSocketProvider>
       </body>
     </html>
   );

@@ -37,17 +37,38 @@ var rootCmd = &cobra.Command{
                                       
                                       
 
-Welcome to Favus – S3 multipart upload automation tool!
-Favus chunks large files, uploads them concurrently, resumes broken transfers,
-and visualizes progress. Minimal config. Maximum reliability.
+Welcome to Favus – an S3 multipart upload automation tool.
+Favus chunks large files, uploads them via S3 multipart,
+safely resumes broken transfers by reconciling with S3 (ListParts),
+and visualizes progress in the terminal (and optionally streams to a Web UI via 'favus ui').
+
+• Config: YAML + ENV overrides (S3_BUCKET_NAME, AWS_REGION, CHUNK_SIZE)
+• AWS auth: profiles/ENV; if missing in TTY, prompts for keys
+• S3-compatible endpoints supported via AWS_ENDPOINT_URL (e.g., LocalStack/MinIO)
+
 Use 'favus --help' to see available commands.
 `,
 	Example: `
-  # Upload a 5GB file to S3
-  favus upload --file video.mp4 --bucket my-bucket --key uploads/video.mp4
+  # Upload a 5GB file to S3 (multipart)
+  favus upload --file ./video.mp4 --bucket my-bucket --key uploads/video.mp4
 
-  # Resume an interrupted upload
-  favus resume --file upload.status --upload-id xyz123
+  # Resume an interrupted upload (status file from previous run)
+  favus resume --file /tmp/video.mp4_abcd1234.upload_status --upload-id abcd1234
+
+  # List ongoing multipart uploads in a bucket
+  favus list-uploads --bucket my-bucket
+
+  # Scan bucket for incomplete (orphan) multipart uploads
+  favus ls-orphans --bucket my-bucket
+
+  # Delete an object
+  favus delete --bucket my-bucket --key uploads/video.mp4
+
+  # Start local UI bridge to stream CLI events to a Web UI
+  favus ui --endpoint ws://127.0.0.1:8765/ws --open
+
+  # Stop the local UI bridge
+  favus stop-ui
 `,
 	SilenceUsage:  true,
 	SilenceErrors: true,

@@ -144,7 +144,7 @@ favus resume ./bigfile.mov.state.json
 favus ls-orphans s3://your-bucket/path/
 
 # Remove orphan parts
-favus rm-orphans s3://your-bucket/path/
+favus kill-orphans s3://your-bucket/path/
 ```
 
 ---

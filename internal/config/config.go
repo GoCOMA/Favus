@@ -3,11 +3,11 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"github.com/spf13/viper"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
-
-	"github.com/spf13/viper"
 )
 
 const (
@@ -50,6 +50,17 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		if err := v.Unmarshal(&conf); err != nil {
 			return nil, fmt.Errorf("unmarshal config: %w", err)
+		}
+	} else {
+		// (2) 기본 경로 ~/.favus/config.yaml 자동 시도
+		def := DefaultConfigPath()
+		if _, err := os.Stat(def); err == nil {
+			v := viper.New()
+			v.SetConfigFile(def)
+			v.SetConfigType("yaml")
+			if err := v.ReadInConfig(); err == nil {
+				_ = v.Unmarshal(&conf) // 에러여도 아래 보정으로 진행
+			}
 		}
 	}
 
@@ -125,18 +136,10 @@ func PromptForUploadConfig(existingBucket, existingKey string) *Config {
 	fmt.Print("🌐 Enter AWS Region (default: ap-northeast-2): ")
 	region, _ := reader.ReadString('\n')
 
-	fmt.Print("📦 Enter part size in MB (minimum 5): ")
-	partStr, _ := reader.ReadString('\n')
-
-	fmt.Print("🔁 Enter max concurrency (minimum 1): ")
-	conStr, _ := reader.ReadString('\n')
-
 	return &Config{
-		Bucket:         bucket,
-		Key:            key,
-		Region:         defaultIfEmpty(region, defaultRegion),
-		PartSizeMB:     parseIntWithMin(partStr, defaultPartSizeMB, minPartSizeMB),
-		MaxConcurrency: parseIntWithMin(conStr, 4, 1),
+		Bucket: bucket,
+		Key:    key,
+		Region: defaultIfEmpty(region, defaultRegion),
 	}
 }
 
@@ -207,4 +210,12 @@ func defaultIfEmpty(val string, def string) string {
 		return def
 	}
 	return val
+}
+
+func DefaultConfigPath() string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "."
+	}
+	return filepath.Join(home, ".favus", "config.yaml")
 }

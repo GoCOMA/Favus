@@ -44,7 +44,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       }
 
       try {
-        const wsUrl = "ws://127.0.0.1:8765/ws";
+        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://127.0.0.1:8765/ws";
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 

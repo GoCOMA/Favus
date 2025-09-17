@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/GoCOMA/Favus/internal/awsutils"
@@ -56,6 +57,32 @@ Handles chunking, retries, resume support, and progress visualization automatica
 			fmt.Print("📝 Enter S3 object key: ")
 			in, _ := reader.ReadString('\n')
 			conf.Key = strings.TrimSpace(in)
+		}
+
+		fmt.Printf("📦 Enter part size in MB (minimum 5) [%d]: ", conf.PartSizeMB)
+		psIn, _ := reader.ReadString('\n')
+		psIn = strings.TrimSpace(psIn)
+		if psIn != "" {
+			if mb, err := strconv.Atoi(psIn); err == nil && mb >= 5 {
+				conf.PartSizeMB = mb
+			} else {
+				conf.PartSizeMB = 5
+			}
+		} else if conf.PartSizeMB < 5 {
+			conf.PartSizeMB = 5
+		}
+
+		fmt.Printf("🔁 Enter max concurrency (minimum 1) [%d]: ", conf.MaxConcurrency)
+		ccIn, _ := reader.ReadString('\n')
+		ccIn = strings.TrimSpace(ccIn)
+		if ccIn != "" {
+			if c, err := strconv.Atoi(ccIn); err == nil && c >= 1 {
+				conf.MaxConcurrency = c
+			} else {
+				conf.MaxConcurrency = 1
+			}
+		} else if conf.MaxConcurrency < 1 {
+			conf.MaxConcurrency = 1
 		}
 
 		// 4) Validate local file

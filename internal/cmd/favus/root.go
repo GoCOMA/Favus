@@ -122,20 +122,14 @@ Use 'favus --help' to see available commands.
 
 		case "resume":
 			// required: Bucket, Key, UploadID (status file path is validated in resume.go)
-			effBucket, effKey, effUploadID := envCfg.Bucket, envCfg.Key, envCfg.UploadID
 			if resumeBucket != "" {
-				effBucket = resumeBucket
+				envCfg.Bucket = resumeBucket
 			}
 			if resumeKey != "" {
-				effKey = resumeKey
+				envCfg.Key = resumeKey
 			}
 			if uploadID != "" {
-				effUploadID = uploadID
-			}
-			if effBucket == "" || effKey == "" || effUploadID == "" {
-				needPrompt = true
-			} else {
-				envCfg.Bucket, envCfg.Key, envCfg.UploadID = effBucket, effKey, effUploadID
+				envCfg.UploadID = uploadID
 			}
 
 		case "ls-orphans":

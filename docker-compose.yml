@@ -1,0 +1,21 @@
+services:
+  wsserver:
+    build: .
+    command: ["python3", "internal/wsserver/server.py"]
+    ports:
+      - "8765:8765"
+    restart: unless-stopped
+    
+  favus-backend:
+    build: .
+    network_mode: "host"
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-ap-northeast-2}
+      - AWS_PROFILE=${AWS_PROFILE:-default}
+    volumes:
+      - ~/.aws:/root/.aws:ro
+    restart: unless-stopped
+    depends_on:
+      - wsserver

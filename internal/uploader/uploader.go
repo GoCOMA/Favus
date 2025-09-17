@@ -351,3 +351,40 @@ func NewUploaderWithAWSConfig(cfgApp *config.Config, awsCfg aws.Config) (*Upload
 		Config:   cfgApp,
 	}, nil
 }
+
+// ListObjects lists completed objects (not multipart sessions) in the configured bucket.
+// Optionally filter by a key prefix and limit results with maxKeys (>0).
+func (u *Uploader) ListObjects(prefix string, maxKeys int32) ([]s3types.Object, error) {
+	input := &s3.ListObjectsV2Input{
+		Bucket: &u.Config.Bucket,
+	}
+	if prefix != "" {
+		input.Prefix = &prefix
+	}
+	if maxKeys > 0 {
+		input.MaxKeys = aws.Int32(maxKeys)
+	}
+
+	var results []s3types.Object
+	var token *string
+	for {
+		input.ContinuationToken = token
+		out, err := u.s3Client.ListObjectsV2(context.Background(), input)
+		if err != nil {
+			return nil, fmt.Errorf("list objects: %w", err)
+		}
+		results = append(results, out.Contents...)
+		if !aws.ToBool(out.IsTruncated) {
+			break
+		}
+		token = out.NextContinuationToken
+		if maxKeys > 0 && int32(len(results)) >= maxKeys {
+			// Trim to maxKeys if we overshot
+			if int32(len(results)) > maxKeys {
+				results = results[:maxKeys]
+			}
+			break
+		}
+	}
+	return results, nil
+}

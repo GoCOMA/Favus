@@ -1,11 +1,11 @@
 package favus
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/GoCOMA/Favus/internal/cmd/favus/cli"
 	"github.com/GoCOMA/Favus/internal/awsutils"
 	"github.com/GoCOMA/Favus/internal/uploader"
 	"github.com/spf13/cobra"
@@ -18,13 +18,6 @@ var (
 	resumeKey      string
 	uploadID       string
 )
-
-func promptInput(prompt string) string {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("%s: ", prompt)
-	in, _ := reader.ReadString('\n')
-	return strings.TrimSpace(in)
-}
 
 var resumeCmd = &cobra.Command{
 	Use:   "resume",
@@ -60,14 +53,14 @@ If some fields are missing, they are taken from config/ENV, then prompted as nee
 
 		// 4) Prompt for required fields if missing
 		if strings.TrimSpace(conf.Bucket) == "" {
-			conf.Bucket = promptInput("🔧 Enter S3 bucket name")
+			conf.Bucket = cli.PromptInput("🔧 Enter S3 bucket name")
 		}
 		if strings.TrimSpace(conf.Key) == "" {
-			conf.Key = promptInput("📝 Enter S3 object key")
+			conf.Key = cli.PromptInput("📝 Enter S3 object key")
 		}
 		// UploadID may come from status file; if still empty we ask
 		if strings.TrimSpace(conf.UploadID) == "" {
-			conf.UploadID = promptInput("🔁 Enter Upload ID")
+			conf.UploadID = cli.PromptInput("🔁 Enter Upload ID")
 		}
 
 		// 5) Validate status file presence

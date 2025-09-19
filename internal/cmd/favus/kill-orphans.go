@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/GoCOMA/Favus/internal/cmd/favus/cli"
 	"github.com/GoCOMA/Favus/internal/awsutils"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -31,7 +32,7 @@ This is destructive and may interrupt ongoing uploads.`,
 			conf.Bucket = strings.TrimSpace(killBucket)
 		}
 		if strings.TrimSpace(conf.Bucket) == "" {
-			conf.Bucket = promptInput("🔧 Enter S3 bucket name")
+			conf.Bucket = cli.PromptInput("🔧 Enter S3 bucket name")
 		}
 
 		// 2) AWS config

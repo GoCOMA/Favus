@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/GoCOMA/Favus/internal/cmd/favus/cli"
 	"github.com/GoCOMA/Favus/internal/awsutils"
 	"github.com/GoCOMA/Favus/internal/uploader"
 	"github.com/spf13/cobra"
@@ -44,10 +45,10 @@ var deleteCmd = &cobra.Command{
 
 		// 4) Prompt missing fields
 		if strings.TrimSpace(conf.Bucket) == "" {
-			conf.Bucket = promptInput("🔧 Enter S3 bucket name")
+			conf.Bucket = cli.PromptInput("🔧 Enter S3 bucket name")
 		}
 		if strings.TrimSpace(conf.Key) == "" {
-			conf.Key = promptInput("🗑️  Enter S3 object key to delete")
+			conf.Key = cli.PromptInput("🗑️  Enter S3 object key to delete")
 		}
 
 		// 5) Execute deletion

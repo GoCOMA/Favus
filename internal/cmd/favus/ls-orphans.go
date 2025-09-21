@@ -47,11 +47,8 @@ that may be wasting storage space and prints their metadata.`,
 
 		// 3. S3 Client 생성 및 로직 실행
 		endpoint := os.Getenv("AWS_ENDPOINT_URL")
-		s3Client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-			if endpoint != "" {
-				o.UsePathStyle = true
-			}
-		})
+		usePathStyle := endpoint != ""
+		s3Client := awsutils.NewS3Client(awsCfg, endpoint, usePathStyle)
 
 		// 4) 페이지네이션으로 진행 중 멀티파트 업로드 나열
 		fmt.Println("🔍 Scanning for incomplete uploads in:", targetBucket)

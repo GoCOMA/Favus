@@ -42,17 +42,15 @@ This is destructive and may interrupt ongoing uploads.`,
 		}
 
 		// 3) S3 client
-		cli := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-			if os.Getenv("AWS_ENDPOINT_URL") != "" {
-				o.UsePathStyle = true
-			}
-		})
+		endpoint := os.Getenv("AWS_ENDPOINT_URL")
+        usePathStyle := endpoint != ""
+        client := awsutils.NewS3Client(awsCfg, endpoint, usePathStyle)
 
 		fmt.Printf("🔍 Scanning bucket '%s' for incomplete multipart uploads...\n", conf.Bucket)
 
 		// 4) 페이지네이션으로 전체 Abort
 		ctx := context.Background()
-		p := s3.NewListMultipartUploadsPaginator(cli, &s3.ListMultipartUploadsInput{
+		p := s3.NewListMultipartUploadsPaginator(client, &s3.ListMultipartUploadsInput{
 			Bucket:     aws.String(conf.Bucket),
 			MaxUploads: aws.Int32(1000),
 		})
@@ -68,7 +66,7 @@ This is destructive and may interrupt ongoing uploads.`,
 				key := aws.ToString(up.Key)
 				uid := aws.ToString(up.UploadId)
 
-				_, err := cli.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+				_, err := client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
 					Bucket:   aws.String(conf.Bucket),
 					Key:      up.Key,
 					UploadId: up.UploadId,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"os"
 
 	"github.com/GoCOMA/Favus/internal/awsutils"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -21,7 +22,9 @@ var listBucketsCmd = &cobra.Command{
 		}
 
 		// 2) Create S3 client
-		s3Client := s3.NewFromConfig(awsCfg)
+		endpoint := os.Getenv("AWS_ENDPOINT_URL")
+		usePathStyle := endpoint != "" 
+		s3Client := awsutils.NewS3Client(awsCfg, endpoint, usePathStyle)
 
 		// 3) List buckets
 		result, err := s3Client.ListBuckets(context.TODO(), &s3.ListBucketsInput{}) 

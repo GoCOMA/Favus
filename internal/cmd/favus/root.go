@@ -79,102 +79,24 @@ Use 'favus --help' to see available commands.
 	// 3) apply CLI flags on top to check completeness
 	// 4) if still missing required fields → prompt
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if debug {
-			fmt.Println("[Favus] Debug mode enabled")
-		}
+        if debug {
+            fmt.Println("[Favus] Debug mode enabled")
+        }
 
-		// skip for informational commands
-		switch cmd.Name() {
-		case "version", "help", "completion":
-			return nil
-		}
+        // skip for informational commands
+        switch cmd.Name() {
+        case "version", "help", "completion":
+            return nil
+        }
 
-		// 1) config file path
-		if cfgPath != "" {
-			var err error
-			loadedConfig, err = config.LoadConfig(cfgPath)
-			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
-			}
-			return nil
-		}
-
-		// 2) ENV-only baseline
-		envCfg, _ := config.LoadConfig("")
-		needPrompt := false
-
-		// 3) consider flags per command (flags are package vars from each command file)
-		switch cmd.Name() {
-		case "upload":
-			// required: Bucket, Key (file path is validated in upload.go)
-			effBucket, effKey := envCfg.Bucket, envCfg.Key
-			if bucket != "" {
-				effBucket = bucket
-			}
-			if objectKey != "" {
-				effKey = objectKey
-			}
-			if effBucket == "" || effKey == "" {
-				needPrompt = true
-			} else {
-				envCfg.Bucket, envCfg.Key = effBucket, effKey
-			}
-
-		case "resume":
-			// required: Bucket, Key, UploadID (status file path is validated in resume.go)
-			if resumeBucket != "" {
-				envCfg.Bucket = resumeBucket
-			}
-			if resumeKey != "" {
-				envCfg.Key = resumeKey
-			}
-			if uploadID != "" {
-				envCfg.UploadID = uploadID
-			}
-
-		case "ls-orphans":
-			// required: Bucket, Region
-			effBucket, effRegion := envCfg.Bucket, envCfg.Region
-			if lsOrphansBucket != "" {
-				effBucket = lsOrphansBucket
-			}
-			if lsOrphansRegion != "" {
-				effRegion = lsOrphansRegion
-			}
-			if effBucket == "" || effRegion == "" {
-				needPrompt = true
-			} else {
-				envCfg.Bucket, envCfg.Region = effBucket, effRegion
-			}
-
-		case "delete":
-			// delete는 커맨드 내부에서 프롬프트 처리 가능하므로 여기선 강제하지 않음
-			needPrompt = false
-
-		default:
-			needPrompt = false
-		}
-
-		// 4) decide
-		if !needPrompt {
-			loadedConfig = envCfg
-			return nil
-		}
-
-		// interactive fallback
-		fmt.Println("⚠️  No config file and insufficient environment variables. Switching to interactive mode.")
-		switch cmd.Name() {
-		case "upload":
-			loadedConfig = config.PromptForUploadConfig(bucket, objectKey)
-		case "resume":
-			loadedConfig = config.PromptForResumeConfig()
-		case "ls-orphans":
-			loadedConfig = config.PromptForSimpleBucket(lsOrphansBucket, lsOrphansRegion)
-		default:
-			return fmt.Errorf("unknown command for interactive config")
-		}
-		return nil
-	},
+        cc, ctxWithCC, err := BuildCommandContext(cmd.Context(), profile, cfgPath, debug)
+        if err != nil {
+            return fmt.Errorf("failed to build command context: %w", err)
+        }
+        loadedConfig = cc.Config
+        cmd.SetContext(ctxWithCC)
+        return nil
+    },
 }
 
 // Called from cmd/main.go

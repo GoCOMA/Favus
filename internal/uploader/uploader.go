@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/GoCOMA/Favus/internal/awsutils"
 	"github.com/GoCOMA/Favus/internal/chunker"
 	"github.com/GoCOMA/Favus/internal/config"
 	"github.com/GoCOMA/Favus/internal/wsagent"
@@ -84,11 +85,8 @@ func NewUploader(cfgApp *config.Config) (*Uploader, error) {
 		return nil, fmt.Errorf("load aws config: %w", err)
 	}
 
-	cli := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-		if endpoint != "" {
-			o.UsePathStyle = true // For LocalStack or custom S3-compatible endpoints
-		}
-	})
+	usePathStyle := endpoint != ""
+	cli := awsutils.NewS3Client(awsCfg, endpoint, usePathStyle)
 
 	return &Uploader{
 		s3Client: cli,
@@ -341,11 +339,10 @@ func (u *Uploader) ListMultipartUploads() ([]s3types.MultipartUpload, error) {
 // NewUploaderWithAWSConfig lets callers provide a pre-built aws.Config (e.g., from awsutils.LoadAWSConfig).
 func NewUploaderWithAWSConfig(cfgApp *config.Config, awsCfg aws.Config) (*Uploader, error) {
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
-	cli := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-		if endpoint != "" {
-			o.UsePathStyle = true // LocalStack / custom S3-compatible endpoints
-		}
-	})
+	
+	usePathStyle := endpoint != ""
+	cli := awsutils.NewS3Client(awsCfg, endpoint, usePathStyle)
+	
 	return &Uploader{
 		s3Client: cli,
 		Config:   cfgApp,

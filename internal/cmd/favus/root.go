@@ -22,6 +22,96 @@ var (
 
 func GetLoadedConfig() *config.Config { return loadedConfig }
 
+type CommandType string
+
+const (
+	CmdUpload      CommandType = "upload"
+	CmdResume      CommandType = "resume"
+	CmdLsOrphans   CommandType = "ls-orphans"
+	CmdDelete      CommandType = "delete"
+	CmdListUploads CommandType = "list-uploads"
+	CmdKillOrphans CommandType = "kill-orphans"
+	CmdListBuckets CommandType = "list-buckets"
+	CmdConfigure   CommandType = "configure"
+	CmdUI          CommandType = "ui"
+	CmdStopUI      CommandType = "stop-ui"
+	CmdVersion     CommandType = "version"
+	CmdHelp        CommandType = "help"
+	CmdCompletion  CommandType = "completion"
+)
+
+func shouldSkipConfigLoading(cmdName string) bool {
+	skipCommands := []string{string(CmdVersion), string(CmdHelp), string(CmdCompletion)}
+	for _, skip := range skipCommands {
+		if cmdName == skip {
+			return true
+		}
+	}
+	return false
+}
+
+func loadConfigFromFile(cfgPath string) (*config.Config, error) {
+	if cfgPath == "" {
+		return config.LoadConfig("")
+	}
+	return config.LoadConfig(cfgPath)
+}
+
+func applyCommandSpecificOverrides(cmdName string, cfg *config.Config) {
+	switch CommandType(cmdName) {
+	case CmdUpload:
+		if bucket != "" {
+			cfg.Bucket = bucket
+		}
+		if objectKey != "" {
+			cfg.Key = objectKey
+		}
+	case CmdResume:
+		if resumeBucket != "" {
+			cfg.Bucket = resumeBucket
+		}
+		if resumeKey != "" {
+			cfg.Key = resumeKey
+		}
+		if uploadID != "" {
+			cfg.UploadID = uploadID
+		}
+	case CmdLsOrphans:
+		if lsOrphansBucket != "" {
+			cfg.Bucket = lsOrphansBucket
+		}
+		if lsOrphansRegion != "" {
+			cfg.Region = lsOrphansRegion
+		}
+	}
+}
+
+func requiresInteractiveConfig(cmdName string, cfg *config.Config) bool {
+	switch CommandType(cmdName) {
+	case CmdUpload:
+		return cfg.Bucket == "" || cfg.Key == ""
+	case CmdLsOrphans:
+		return cfg.Bucket == "" || cfg.Region == ""
+	case CmdDelete:
+		return false // delete handles prompts internally
+	default:
+		return false
+	}
+}
+
+func promptForCommandConfig(cmdName string) *config.Config {
+	switch CommandType(cmdName) {
+	case CmdUpload:
+		return config.PromptForUploadConfig(bucket, objectKey)
+	case CmdResume:
+		return config.PromptForResumeConfig()
+	case CmdLsOrphans:
+		return config.PromptForSimpleBucket(lsOrphansBucket, lsOrphansRegion)
+	default:
+		return nil
+	}
+}
+
 // Root command
 var rootCmd = &cobra.Command{
 	Use:   "favus",
@@ -73,114 +163,47 @@ Use 'favus --help' to see available commands.
 	SilenceUsage:  true,
 	SilenceErrors: true,
 
-	// Config loading order:
-	// 1) --config provided → load file (ENV overlay is handled inside LoadConfig)
-	// 2) else LoadConfig("") to get defaults + ENV overlay
-	// 3) apply CLI flags on top to check completeness
-	// 4) if still missing required fields → prompt
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if debug {
-			fmt.Println("[Favus] Debug mode enabled")
-		}
-
-		// skip for informational commands
-		switch cmd.Name() {
-		case "version", "help", "completion":
-			return nil
-		}
-
-		// 1) config file path
-		if cfgPath != "" {
-			var err error
-			loadedConfig, err = config.LoadConfig(cfgPath)
-			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
-			}
-			return nil
-		}
-
-		// 2) ENV-only baseline
-		envCfg, _ := config.LoadConfig("")
-		needPrompt := false
-
-		// 3) consider flags per command (flags are package vars from each command file)
-		switch cmd.Name() {
-		case "upload":
-			// required: Bucket, Key (file path is validated in upload.go)
-			effBucket, effKey := envCfg.Bucket, envCfg.Key
-			if bucket != "" {
-				effBucket = bucket
-			}
-			if objectKey != "" {
-				effKey = objectKey
-			}
-			if effBucket == "" || effKey == "" {
-				needPrompt = true
-			} else {
-				envCfg.Bucket, envCfg.Key = effBucket, effKey
-			}
-
-		case "resume":
-			// required: Bucket, Key, UploadID (status file path is validated in resume.go)
-			if resumeBucket != "" {
-				envCfg.Bucket = resumeBucket
-			}
-			if resumeKey != "" {
-				envCfg.Key = resumeKey
-			}
-			if uploadID != "" {
-				envCfg.UploadID = uploadID
-			}
-
-		case "ls-orphans":
-			// required: Bucket, Region
-			effBucket, effRegion := envCfg.Bucket, envCfg.Region
-			if lsOrphansBucket != "" {
-				effBucket = lsOrphansBucket
-			}
-			if lsOrphansRegion != "" {
-				effRegion = lsOrphansRegion
-			}
-			if effBucket == "" || effRegion == "" {
-				needPrompt = true
-			} else {
-				envCfg.Bucket, envCfg.Region = effBucket, effRegion
-			}
-
-		case "delete":
-			// delete는 커맨드 내부에서 프롬프트 처리 가능하므로 여기선 강제하지 않음
-			needPrompt = false
-
-		default:
-			needPrompt = false
-		}
-
-		// 4) decide
-		if !needPrompt {
-			loadedConfig = envCfg
-			return nil
-		}
-
-		// interactive fallback
-		fmt.Println("⚠️  No config file and insufficient environment variables. Switching to interactive mode.")
-		switch cmd.Name() {
-		case "upload":
-			loadedConfig = config.PromptForUploadConfig(bucket, objectKey)
-		case "resume":
-			loadedConfig = config.PromptForResumeConfig()
-		case "ls-orphans":
-			loadedConfig = config.PromptForSimpleBucket(lsOrphansBucket, lsOrphansRegion)
-		default:
-			return fmt.Errorf("unknown command for interactive config")
-		}
-		return nil
-	},
+	PersistentPreRunE: setupConfigForCommand,
 }
 
-// Called from cmd/main.go
+func setupConfigForCommand(cmd *cobra.Command, _ []string) error {
+	if debug {
+		fmt.Println("[Favus] Debug mode enabled")
+	}
+
+	// Skip config loading for informational commands
+	if shouldSkipConfigLoading(cmd.Name()) {
+		return nil
+	}
+
+	// Load config from file if specified, otherwise from ENV
+	cfg, err := loadConfigFromFile(cfgPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Apply command-specific flag overrides
+	applyCommandSpecificOverrides(cmd.Name(), cfg)
+
+	// Check if interactive config is needed
+	if requiresInteractiveConfig(cmd.Name(), cfg) {
+		fmt.Println("⚠️  No config file and insufficient environment variables. Switching to interactive mode.")
+		interactiveConfig := promptForCommandConfig(cmd.Name())
+		if interactiveConfig == nil {
+			return fmt.Errorf("unknown command for interactive config: %s", cmd.Name())
+		}
+		loadedConfig = interactiveConfig
+	} else {
+		loadedConfig = cfg
+	}
+
+	return nil
+}
+
+// Execute runs the root command and handles any errors
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "\nError: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "\nError: %v\n", err)
 		os.Exit(1)
 	}
 }

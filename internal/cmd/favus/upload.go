@@ -1,14 +1,8 @@
 package favus
 
 import (
-	"bufio"
 	"fmt"
-	"os"
-	"strconv"
-	"strings"
 
-	"github.com/GoCOMA/Favus/internal/awsutils"
-	"github.com/GoCOMA/Favus/internal/uploader"
 	"github.com/spf13/cobra"
 )
 
@@ -27,81 +21,51 @@ Handles chunking, retries, resume support, and progress visualization automatica
 	Example: `
   favus upload --file ./bigfile.mp4 --bucket my-bucket --key uploads/bigfile.mp4
   favus upload -f ./bigfile.mp4 -c config.yaml`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// 1) Load AWS config (profile aware)
-		awsCfg, err := awsutils.LoadAWSConfig(profile)
-		if err != nil {
-			return fmt.Errorf("load aws config: %w", err)
-		}
+	RunE: runUpload,
+}
 
-		// 2) Start from loaded config (file/ENV), then override with flags
-		conf := GetLoadedConfig()
-		if conf == nil {
-			return fmt.Errorf("config not loaded (PersistentPreRunE should have populated it)")
-		}
-		if bucket != "" {
-			conf.Bucket = strings.TrimSpace(bucket)
-		}
-		if objectKey != "" {
-			conf.Key = strings.TrimSpace(objectKey)
-		}
+func runUpload(_ *cobra.Command, _ []string) error {
+	// Load and validate config
+	conf, err := LoadConfigWithOverrides(bucket, objectKey, "")
+	if err != nil {
+		return err
+	}
 
-		// 3) Prompt for missing required fields
-		reader := bufio.NewReader(os.Stdin)
-		if strings.TrimSpace(conf.Bucket) == "" {
-			fmt.Print("🔧 Enter S3 bucket name: ")
-			in, _ := reader.ReadString('\n')
-			conf.Bucket = strings.TrimSpace(in)
-		}
-		if strings.TrimSpace(conf.Key) == "" {
-			fmt.Print("📝 Enter S3 object key: ")
-			in, _ := reader.ReadString('\n')
-			conf.Key = strings.TrimSpace(in)
-		}
+	// Prompt for missing required fields
+	validator := NewConfigValidator(conf).RequireBucket().RequireKey()
+	PromptForMissingConfig(validator)
 
-		fmt.Printf("📦 Enter part size in MB (minimum 5) [%d]: ", conf.PartSizeMB)
-		psIn, _ := reader.ReadString('\n')
-		psIn = strings.TrimSpace(psIn)
-		if psIn != "" {
-			if mb, err := strconv.Atoi(psIn); err == nil && mb >= 5 {
-				conf.PartSizeMB = mb
-			} else {
-				conf.PartSizeMB = 5
-			}
-		} else if conf.PartSizeMB < 5 {
-			conf.PartSizeMB = 5
-		}
+	// Prompt for upload parameters with proper defaults
+	defaultPartSize := conf.PartSizeMB
+	if defaultPartSize < MinPartSizeMB {
+		defaultPartSize = MinPartSizeMB
+	}
 
-		fmt.Printf("🔁 Enter max concurrency (minimum 1) [%d]: ", conf.MaxConcurrency)
-		ccIn, _ := reader.ReadString('\n')
-		ccIn = strings.TrimSpace(ccIn)
-		if ccIn != "" {
-			if c, err := strconv.Atoi(ccIn); err == nil && c >= 1 {
-				conf.MaxConcurrency = c
-			} else {
-				conf.MaxConcurrency = 1
-			}
-		} else if conf.MaxConcurrency < 1 {
-			conf.MaxConcurrency = 1
-		}
+	defaultConcurrency := conf.MaxConcurrency
+	if defaultConcurrency < MinConcurrency {
+		defaultConcurrency = MinConcurrency
+	}
 
-		// 4) Validate local file
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			return fmt.Errorf("file not found: %s", filePath)
-		}
+	conf.PartSizeMB = PromptIntWithValidation("📦 Enter part size in MB", defaultPartSize, MinPartSizeMB)
+	conf.MaxConcurrency = PromptIntWithValidation("🔁 Enter max concurrency", defaultConcurrency, MinConcurrency)
 
-		// 5) Do upload
-		up, err := uploader.NewUploaderWithAWSConfig(conf, awsCfg)
-		if err != nil {
-			return fmt.Errorf("init uploader: %w", err)
-		}
-		if err := up.UploadFile(filePath, conf.Key); err != nil {
-			return fmt.Errorf("upload failed: %w", err)
-		}
+	// Validate local file
+	if err := ValidateFile(filePath); err != nil {
+		return err
+	}
 
-		fmt.Printf("✅ Upload complete → s3://%s/%s\n", conf.Bucket, conf.Key)
-		return nil
-	},
+	// Create uploader and perform upload
+	up, err := CreateUploaderWithAWS(conf)
+	if err != nil {
+		return err
+	}
+
+	if err := up.UploadFile(filePath, conf.Key); err != nil {
+		return fmt.Errorf("upload failed: %w", err)
+	}
+
+	fmt.Println(FormatSuccessMessage("Upload complete", conf.Bucket, conf.Key))
+	return nil
 }
 
 func init() {

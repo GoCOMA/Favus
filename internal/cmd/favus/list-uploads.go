@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/GoCOMA/Favus/internal/awsutils"
-	"github.com/GoCOMA/Favus/internal/uploader"
 	"github.com/GoCOMA/Favus/internal/wsagent"
 	"github.com/spf13/cobra"
 )
@@ -24,97 +22,77 @@ var (
 var listUploadsCmd = &cobra.Command{
 	Use:   "list-uploads",
 	Short: "List ongoing multipart uploads in the bucket",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// 1) Load effective config prepared by PersistentPreRunE
-		conf := GetLoadedConfig()
-		if conf == nil {
-			return fmt.Errorf("config not loaded")
-		}
-		if listBucket != "" {
-			conf.Bucket = listBucket
-		}
-		if conf.Bucket == "" {
-			return fmt.Errorf("bucket is required (use --bucket or config/ENV)")
-		}
+	RunE:  runListUploads,
+}
 
-		// 2) AWS config (LocalStack or real AWS)
-		awsCfg, err := awsutils.LoadAWSConfig(profile)
-		if err != nil {
-			return fmt.Errorf("load aws config: %w", err)
-		}
+func sendUIEvent(ctx context.Context, bucket string, items []map[string]string) {
+	addr := wsagent.DefaultAddr()
+	_ = wsagent.SendEvent(ctx, addr, wsagent.Event{
+		Type:      "list-uploads",
+		RunID:     "",
+		Timestamp: time.Now(),
+		Payload: mustJSON(map[string]any{
+			"bucket": bucket,
+			"items":  items,
+		}),
+	})
+}
 
-		// 3) Create uploader and list
-		up, err := uploader.NewUploaderWithAWSConfig(conf, awsCfg)
-		if err != nil {
-			return fmt.Errorf("init uploader: %w", err)
-		}
+func runListUploads(cmd *cobra.Command, _ []string) error {
+	// Load and validate config
+	conf, err := LoadConfigWithOverrides(listBucket, "", "")
+	if err != nil {
+		return err
+	}
 
-		items, err := up.ListMultipartUploads()
-		if err != nil {
-			return fmt.Errorf("list multipart uploads: %w", err)
-		}
+	if conf.Bucket == "" {
+		return fmt.Errorf("bucket is required (use --bucket or config/ENV)")
+	}
 
-		addr := wsagent.DefaultAddr()
+	// Create uploader and list uploads
+	up, err := CreateUploaderWithAWS(conf)
+	if err != nil {
+		return fmt.Errorf("init uploader: %w", err)
+	}
 
-		if len(items) == 0 {
-			fmt.Println("No ongoing multipart uploads.")
+	items, err := up.ListMultipartUploads()
+	if err != nil {
+		return fmt.Errorf("list multipart uploads: %w", err)
+	}
 
-			// UI에도 전송
-			_ = wsagent.SendEvent(context.Background(), addr, wsagent.Event{
-				Type:      "list-uploads",
-				RunID:     "",
-				Timestamp: time.Now(),
-				Payload: mustJSON(map[string]any{
-					"bucket": conf.Bucket,
-					"items":  []map[string]string{},
-				}),
-			})
-			return nil
-		}
-
-		fmt.Printf("Ongoing multipart uploads in bucket %s:\n", conf.Bucket)
-		uiItems := []map[string]string{} // UI 전송용 데이터 모으기
-
-		for _, u := range items {
-			// pointers may be nil; guard
-			key := ""
-			uploadID := ""
-			if u.Key != nil {
-				key = *u.Key
-			}
-			if u.UploadId != nil {
-				uploadID = *u.UploadId
-			}
-
-			initiated := "-"
-			if u.Initiated != nil {
-				initiated = u.Initiated.Format(time.RFC3339)
-			}
-
-			// 콘솔 출력
-			fmt.Printf("- UploadID: %s | Key: %s | Initiated: %s\n", uploadID, key, initiated)
-
-			// UI 데이터 추가
-			uiItems = append(uiItems, map[string]string{
-				"uploadId":  uploadID,
-				"key":       key,
-				"initiated": initiated,
-			})
-		}
-
-		// UI 브라우저로 전송
-		_ = wsagent.SendEvent(cmd.Context(), addr, wsagent.Event{
-			Type:      "list-uploads",
-			RunID:     "",
-			Timestamp: time.Now(),
-			Payload: mustJSON(map[string]any{
-				"bucket": conf.Bucket,
-				"items":  uiItems,
-			}),
-		})
-
+	if len(items) == 0 {
+		fmt.Println("No ongoing multipart uploads.")
+		sendUIEvent(context.Background(), conf.Bucket, []map[string]string{})
 		return nil
-	},
+	}
+
+	fmt.Printf("Ongoing multipart uploads in bucket %s:\n", conf.Bucket)
+	uiItems := make([]map[string]string, 0, len(items))
+
+	for _, u := range items {
+		// Extract upload information
+		key, uploadID, initiated := "", "", "-"
+
+		// Extract fields from MultipartUpload struct
+		key = StringPtrValue(u.Key)
+		uploadID = StringPtrValue(u.UploadId)
+		if u.Initiated != nil {
+			initiated = u.Initiated.Format(time.RFC3339)
+		}
+
+		// Console output
+		fmt.Printf("- UploadID: %s | Key: %s | Initiated: %s\n", uploadID, key, initiated)
+
+		// UI data
+		uiItems = append(uiItems, map[string]string{
+			"uploadId":  uploadID,
+			"key":       key,
+			"initiated": initiated,
+		})
+	}
+
+	sendUIEvent(cmd.Context(), conf.Bucket, uiItems)
+	return nil
 }
 
 func init() {

@@ -1,13 +1,8 @@
 package favus
 
 import (
-	"bufio"
 	"fmt"
-	"os"
-	"strings"
 
-	"github.com/GoCOMA/Favus/internal/awsutils"
-	"github.com/GoCOMA/Favus/internal/uploader"
 	"github.com/spf13/cobra"
 )
 
@@ -19,13 +14,6 @@ var (
 	uploadID       string
 )
 
-func promptInput(prompt string) string {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("%s: ", prompt)
-	in, _ := reader.ReadString('\n')
-	return strings.TrimSpace(in)
-}
-
 var resumeCmd = &cobra.Command{
 	Use:   "resume",
 	Short: "Resume an interrupted multipart upload to S3",
@@ -34,59 +22,47 @@ If some fields are missing, they are taken from config/ENV, then prompted as nee
 	Example: `
   favus resume --file ./upload.status
   favus resume --file ./upload.status -c config.yaml`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// 1) AWS config
-		awsCfg, err := awsutils.LoadAWSConfig(profile)
-		if err != nil {
-			return fmt.Errorf("load aws config: %w", err)
-		}
+	RunE: runResume,
+}
 
-		// 2) Base config from file/ENV prepared by PersistentPreRunE
-		conf := GetLoadedConfig()
-		if conf == nil {
-			return fmt.Errorf("config not loaded (PersistentPreRunE should have populated it)")
-		}
+func runResume(_ *cobra.Command, _ []string) error {
+	// Validate status file presence first
+	if err := ValidateFile(resumeFilePath); err != nil {
+		return fmt.Errorf("status file validation failed: %w", err)
+	}
 
-		// 3) Overlay flags
-		if resumeBucket != "" {
-			conf.Bucket = strings.TrimSpace(resumeBucket)
-		}
-		if resumeKey != "" {
-			conf.Key = strings.TrimSpace(resumeKey)
-		}
-		if uploadID != "" {
-			conf.UploadID = strings.TrimSpace(uploadID)
-		}
+	// Load and validate config
+	conf, err := LoadConfigWithOverrides(resumeBucket, resumeKey, "")
+	if err != nil {
+		return err
+	}
 
-		// 4) Prompt for required fields if missing
-		if strings.TrimSpace(conf.Bucket) == "" {
-			conf.Bucket = promptInput("🔧 Enter S3 bucket name")
-		}
-		if strings.TrimSpace(conf.Key) == "" {
-			conf.Key = promptInput("📝 Enter S3 object key")
-		}
-		// UploadID may come from status file; if still empty we ask
-		if strings.TrimSpace(conf.UploadID) == "" {
-			conf.UploadID = promptInput("🔁 Enter Upload ID")
-		}
+	// Apply uploadID override
+	if uploadID != "" {
+		conf.UploadID = uploadID
+	}
 
-		// 5) Validate status file presence
-		if _, err := os.Stat(resumeFilePath); os.IsNotExist(err) {
-			return fmt.Errorf("status file not found: %s", resumeFilePath)
-		}
+	// Prompt for missing required fields
+	validator := NewConfigValidator(conf).RequireBucket().RequireKey()
+	PromptForMissingConfig(validator)
 
-		// 6) Resume
-		up, err := uploader.NewUploaderWithAWSConfig(conf, awsCfg)
-		if err != nil {
-			return fmt.Errorf("init uploader: %w", err)
-		}
-		if err := up.ResumeUpload(resumeFilePath); err != nil {
-			return fmt.Errorf("resume failed: %w", err)
-		}
+	// Prompt for UploadID if still missing (may come from status file)
+	if conf.UploadID == "" {
+		conf.UploadID = PromptInput("🔁 Enter Upload ID")
+	}
 
-		fmt.Println("✅ Resume completed")
-		return nil
-	},
+	// Create uploader and resume upload
+	up, err := CreateUploaderWithAWS(conf)
+	if err != nil {
+		return err
+	}
+
+	if err := up.ResumeUpload(resumeFilePath); err != nil {
+		return fmt.Errorf("resume failed: %w", err)
+	}
+
+	fmt.Println("✅ Resume completed")
+	return nil
 }
 
 func init() {

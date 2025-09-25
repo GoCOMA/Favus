@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/GoCOMA/Favus/internal/awsutils"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -21,78 +20,95 @@ var killOrphansCmd = &cobra.Command{
 This is destructive and may interrupt ongoing uploads.`,
 	Example: `
   favus kill-orphans --bucket my-bucket`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// 1) config/ENV → flag overlay
-		conf := GetLoadedConfig()
-		if conf == nil {
-			return fmt.Errorf("config not loaded (PersistentPreRunE should have populated it)")
-		}
-		if killBucket != "" {
-			conf.Bucket = strings.TrimSpace(killBucket)
-		}
-		if strings.TrimSpace(conf.Bucket) == "" {
-			conf.Bucket = promptInput("🔧 Enter S3 bucket name")
-		}
+	RunE: runKillOrphans,
+}
 
-		// 2) AWS config
-		awsCfg, err := awsutils.LoadAWSConfig(profile)
+type AbortStats struct {
+	Total   int
+	Aborted int
+	Failed  int
+}
+
+func (s AbortStats) HasFailures() bool {
+	return s.Failed > 0
+}
+
+func (s AbortStats) Print() {
+	if s.Total == 0 {
+		fmt.Println("✅ 미완성 멀티파트 업로드가 없습니다.")
+		return
+	}
+	fmt.Printf("완료: 대상 %d, 성공 %d, 실패 %d\n", s.Total, s.Aborted, s.Failed)
+}
+
+func abortSingleUpload(ctx context.Context, client *s3.Client, bucket string, key, uploadID *string) error {
+	_, err := client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+		Bucket:   ToStringPtr(bucket),
+		Key:      key,
+		UploadId: uploadID,
+	})
+	return err
+}
+
+func runKillOrphans(_ *cobra.Command, _ []string) error {
+	// Load and validate config
+	conf, err := LoadConfigWithOverrides(killBucket, "", "")
+	if err != nil {
+		return err
+	}
+
+	// Prompt for bucket if missing
+	validator := NewConfigValidator(conf).RequireBucket()
+	PromptForMissingConfig(validator)
+
+	// Setup AWS config and S3 client
+	awsCfg, err := awsutils.LoadAWSConfig(profile)
+	if err != nil {
+		return fmt.Errorf("load aws config: %w", err)
+	}
+
+	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		if os.Getenv("AWS_ENDPOINT_URL") != "" {
+			o.UsePathStyle = true
+		}
+	})
+
+	fmt.Printf("🔍 Scanning bucket '%s' for incomplete multipart uploads...\n", conf.Bucket)
+
+	// Paginate through and abort all incomplete uploads
+	ctx := context.Background()
+	paginator := s3.NewListMultipartUploadsPaginator(client, &s3.ListMultipartUploadsInput{
+		Bucket:     ToStringPtr(conf.Bucket),
+		MaxUploads: aws.Int32(1000),
+	})
+
+	stats := AbortStats{}
+	for paginator.HasMorePages() {
+		out, err := paginator.NextPage(ctx)
 		if err != nil {
-			return fmt.Errorf("load aws config: %w", err)
+			return fmt.Errorf("list multipart uploads: %w", err)
 		}
 
-		// 3) S3 client
-		cli := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-			if os.Getenv("AWS_ENDPOINT_URL") != "" {
-				o.UsePathStyle = true
-			}
-		})
+		for _, up := range out.Uploads {
+			stats.Total++
+			key := StringPtrValue(up.Key)
+			uid := StringPtrValue(up.UploadId)
 
-		fmt.Printf("🔍 Scanning bucket '%s' for incomplete multipart uploads...\n", conf.Bucket)
-
-		// 4) 페이지네이션으로 전체 Abort
-		ctx := context.Background()
-		p := s3.NewListMultipartUploadsPaginator(cli, &s3.ListMultipartUploadsInput{
-			Bucket:     aws.String(conf.Bucket),
-			MaxUploads: aws.Int32(1000),
-		})
-
-		total, aborted, failed := 0, 0, 0
-		for p.HasMorePages() {
-			out, err := p.NextPage(ctx)
-			if err != nil {
-				return fmt.Errorf("list multipart uploads: %w", err)
-			}
-			for _, up := range out.Uploads {
-				total++
-				key := aws.ToString(up.Key)
-				uid := aws.ToString(up.UploadId)
-
-				_, err := cli.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
-					Bucket:   aws.String(conf.Bucket),
-					Key:      up.Key,
-					UploadId: up.UploadId,
-				})
-				if err != nil {
-					failed++
-					fmt.Printf("❌ abort 실패: key=%s uploadId=%s err=%v\n", key, uid, err)
-				} else {
-					aborted++
-					fmt.Printf("✅ abort 성공: key=%s uploadId=%s\n", key, uid)
-				}
+			if err := abortSingleUpload(ctx, client, conf.Bucket, up.Key, up.UploadId); err != nil {
+				stats.Failed++
+				fmt.Printf("❌ abort 실패: key=%s uploadId=%s err=%v\n", key, uid, err)
+			} else {
+				stats.Aborted++
+				fmt.Printf("✅ abort 성공: key=%s uploadId=%s\n", key, uid)
 			}
 		}
+	}
 
-		if total == 0 {
-			fmt.Println("✅ 미완성 멀티파트 업로드가 없습니다.")
-			return nil
-		}
-
-		fmt.Printf("완료: 대상 %d, 성공 %d, 실패 %d\n", total, aborted, failed)
-		if failed > 0 {
-			return fmt.Errorf("some uploads could not be aborted")
-		}
-		return nil
-	},
+	stats.Print()
+	if stats.HasFailures() {
+		return fmt.Errorf("some uploads could not be aborted")
+	}
+	return nil
 }
 
 func init() {

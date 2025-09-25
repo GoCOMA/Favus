@@ -13,9 +13,10 @@ import (
 )
 
 var (
-	lsObjectsBucket string
-	lsObjectsPrefix string
-	lsObjectsMax    int32
+	lsObjectsBucket         string
+	lsObjectsPrefix         string
+	lsObjectsMax            int32
+	lsObjectsWithIncomplete bool
 )
 
 var listObjectsCmd = &cobra.Command{
@@ -27,12 +28,14 @@ var listObjectsCmd = &cobra.Command{
   favus ls-objects --bucket my-bucket --prefix uploads/
   favus ls-objects --bucket my-bucket --prefix logs/ --max 50`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+
+		// 1) Load effective config prepared by PersistentPreRunE
 		conf := GetLoadedConfig()
 		if conf == nil {
-			return fmt.Errorf("config not loaded (PersistentPreRunE should have populated it)")
+			return fmt.Errorf("config not loaded")
 		}
 
-		// Flag overrides
+		// 2) Flag overrides
 		effBucket := strings.TrimSpace(lsObjectsBucket)
 		if effBucket == "" {
 			effBucket = strings.TrimSpace(conf.Bucket)
@@ -42,40 +45,77 @@ var listObjectsCmd = &cobra.Command{
 		}
 		conf.Bucket = effBucket
 
-		// AWS cfg
+		// 3) AWS config (LocalStack or real AWS)
 		awsCfg, err := awsutils.LoadAWSConfig(profile)
 		if err != nil {
 			return fmt.Errorf("load aws config: %w", err)
 		}
 
+		// 3) Create uploader and list
 		up, err := uploader.NewUploaderWithAWSConfig(conf, awsCfg)
 		if err != nil {
 			return fmt.Errorf("init uploader: %w", err)
 		}
 
+		// 4) Load object list from S3
 		objects, err := up.ListObjects(strings.TrimSpace(lsObjectsPrefix), lsObjectsMax)
 		if err != nil {
-			return err
+			return fmt.Errorf("fail to load objects: %w", err)
 		}
 
-		if len(objects) == 0 {
-			fmt.Println("(no objects)")
-			return nil
+		printedAnything := false
+
+		if len(objects) > 0 {
+			fmt.Println("Objects:")
+			fmt.Fprintf(os.Stdout, "%5s  %-12s  %-12s  %-20s  %s\n", "#", "Size", "Storage", "Modified", "Key")
+			for i, o := range objects {
+				size := aws.ToInt64(o.Size)
+				sc := string(o.StorageClass)
+				if sc == "" {
+					sc = "-"
+				}
+				mod := "-"
+				if o.LastModified != nil {
+					mod = o.LastModified.UTC().Format(time.RFC3339)
+				}
+				fmt.Fprintf(os.Stdout, "%5d  %-12d  %-12s  %-20s  %s\n", i+1, size, sc, mod, aws.ToString(o.Key))
+			}
+			printedAnything = true
 		}
 
-		// Print header
-		fmt.Fprintf(os.Stdout, "%5s  %-12s  %-12s  %-10s  %s\n", "#", "Size", "Storage", "Modified", "Key")
-		for i, o := range objects {
-			size := aws.ToInt64(o.Size)
-			sc := string(o.StorageClass)
-			if sc == "" {
-				sc = "-"
+		// 5) Optionally list incomplete multipart uploads
+		if lsObjectsWithIncomplete {
+			uploads, err := up.ListMultipartUploads()
+			if err != nil {
+				return fmt.Errorf("fail to load incomplete uploads: %w", err)
 			}
-			mod := "-"
-			if o.LastModified != nil {
-				mod = o.LastModified.UTC().Format(time.RFC3339)
+			if len(uploads) > 0 {
+				if printedAnything {
+					fmt.Println()
+				}
+				fmt.Println("Incomplete multipart uploads:")
+				fmt.Fprintf(os.Stdout, "%-36s  %-20s  %s\n", "UploadID", "Initiated(UTC)", "Key")
+				for _, u := range uploads {
+					uid := "-"
+					key := "-"
+					initiated := "-"
+					if u.UploadId != nil {
+						uid = *u.UploadId
+					}
+					if u.Key != nil {
+						key = *u.Key
+					}
+					if u.Initiated != nil {
+						initiated = u.Initiated.UTC().Format(time.RFC3339)
+					}
+					fmt.Fprintf(os.Stdout, "%-36s  %-20s  %s\n", uid, initiated, key)
+				}
+				printedAnything = true
 			}
-			fmt.Fprintf(os.Stdout, "%5d  %-12d  %-12s  %-10s  %s\n", i+1, size, sc, mod, aws.ToString(o.Key))
+		}
+
+		if !printedAnything {
+			fmt.Println("(no results)")
 		}
 		return nil
 	},
@@ -86,4 +126,5 @@ func init() {
 	listObjectsCmd.Flags().StringVarP(&lsObjectsBucket, "bucket", "b", "", "Target S3 bucket name (overrides config/ENV)")
 	listObjectsCmd.Flags().StringVarP(&lsObjectsPrefix, "prefix", "p", "", "Optional key prefix to filter objects")
 	listObjectsCmd.Flags().Int32VarP(&lsObjectsMax, "max", "m", 0, "Max number of results to return (0 = unlimited)")
+	listObjectsCmd.Flags().BoolVarP(&lsObjectsWithIncomplete, "with-incomplete", "i", false, "Also show incomplete multipart uploads")
 }

@@ -11,7 +11,6 @@ import (
 
 	"github.com/GoCOMA/Favus/internal/chunker"
 	"github.com/GoCOMA/Favus/internal/config"
-	"github.com/GoCOMA/Favus/internal/wsagent"
 	"github.com/GoCOMA/Favus/pkg/utils"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -161,100 +160,100 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 	)
 
 	var completedParts []s3types.CompletedPart
+	// Concurrently upload chunks
+	maxConcurrency := u.Config.MaxConcurrency
+	if maxConcurrency <= 0 {
+		maxConcurrency = 1
+	}
+	jobs := make(chan chunker.Chunk, len(chunks))
+	results := make(chan s3types.CompletedPart, len(chunks))
+	errs := make(chan error, len(chunks))
 
-	// Upload each chunk
+	for w := 1; w <= maxConcurrency; w++ {
+		go func(workerID int) {
+			for ch := range jobs {
+				utils.Info(fmt.Sprintf("[Worker %d] Uploading part %d for file %s", workerID, ch.Index, filePath))
+
+				reader, err := fileChunker.GetChunkReader(ch)
+				if err != nil {
+					errs <- fmt.Errorf("[Worker %d] failed to get chunk reader for part %d: %w", workerID, ch.Index, err)
+					return
+				}
+
+				r.partStart(ch.Index, ch.Size, ch.Offset)
+
+				// Retry logic for each part
+				var uploadOutput *s3.UploadPartOutput
+				err = utils.Retry(5, 2*time.Second, func() error {
+					// Reset reader to the beginning of the chunk for each retry
+					_, seekErr := reader.Seek(0, 0)
+					if seekErr != nil {
+						return fmt.Errorf("failed to seek chunk reader for part %d: %w", ch.Index, seekErr)
+					}
+
+					pr := NewReadSeekCloserProgress(reader, func(n int64) {
+						_ = totalBar.Add64(n)
+						r.progressAdd(n)
+						r.partProgressAdd(ch.Index, n)
+					})
+
+					var partErr error
+					uploadOutput, partErr = u.s3Client.UploadPart(context.Background(), &s3.UploadPartInput{
+						Body:          pr,
+						Bucket:        &u.Config.Bucket,
+						Key:           &s3Key,
+						PartNumber:    aws.Int32(int32(ch.Index)),
+						UploadId:      &uploadID,
+						ContentLength: aws.Int64(ch.Size),
+					})
+					if partErr != nil {
+						utils.Error(fmt.Sprintf("[Worker %d] Failed to upload part %d: %v", workerID, ch.Index, partErr))
+						return partErr
+					}
+					return nil
+				})
+				_ = reader.Close()
+
+				if err != nil {
+					errs <- fmt.Errorf("[Worker %d] failed to upload part %d after retries: %w", workerID, ch.Index, err)
+					return
+				}
+
+				if uploadOutput.ETag == nil {
+					errs <- fmt.Errorf("[Worker %d] ETag for part %d is nil", workerID, ch.Index)
+					return
+				}
+
+				part := s3types.CompletedPart{
+					PartNumber: aws.Int32(int32(ch.Index)),
+					ETag:       uploadOutput.ETag,
+				}
+				results <- part
+				status.AddCompletedPart(ch.Index, *uploadOutput.ETag)
+				if err := status.SaveStatus(statusFilePath); err != nil {
+					utils.Error(fmt.Sprintf("[Worker %d] Failed to save status for part %d: %v", workerID, ch.Index, err))
+				}
+				utils.Info(fmt.Sprintf("[Worker %d] Successfully uploaded part %d. ETag: %s", workerID, ch.Index, *uploadOutput.ETag))
+				r.partDone(ch.Index, ch.Size, *uploadOutput.ETag)
+			}
+		}(w)
+	}
+
 	for _, ch := range chunks {
-		reader, err := fileChunker.GetChunkReader(ch)
-		if err != nil {
-			utils.Error(fmt.Sprintf("Failed to get chunk reader for part %d: %v", ch.Index, err))
-			r.error(fmt.Sprintf("get chunk reader (part %d): %v", ch.Index, err), &ch.Index)
+		jobs <- ch
+	}
+	close(jobs)
+
+	for i := 0; i < len(chunks); i++ {
+		select {
+		case part := <-results:
+			completedParts = append(completedParts, part)
+		case err := <-errs:
+			utils.Error(fmt.Sprintf("An error occurred during upload: %v", err))
 			_ = u.AbortMultipartUpload(s3Key, uploadID)
 			r.done(false, uploadID)
-			return fmt.Errorf("failed to get chunk reader for part %d: %w", ch.Index, err)
+			return err
 		}
-
-		// WS: 파트 시작
-		r.partStart(ch.Index, ch.Size, ch.Offset)
-
-		partBar := progressbar.NewOptions64(
-			ch.Size,
-			progressbar.OptionSetDescription(fmt.Sprintf("part %d", ch.Index)),
-			progressbar.OptionShowBytes(true),
-			progressbar.OptionSetWidth(30),
-			progressbar.OptionThrottle(65*time.Millisecond),
-			// progressbar.OptionClearOnFinish(),
-			progressbar.OptionSetWriter(os.Stdout),
-		)
-
-		// 진행량 콜백: 전체/파트 모두 WS로도 전송
-		pr := NewReadSeekCloserProgress(reader, func(n int64) {
-			_ = partBar.Add64(n)
-			_ = totalBar.Add64(n)
-			r.progressAdd(n)
-			r.partProgressAdd(ch.Index, n)
-
-			ev := wsagent.Event{
-				Type:      "progress",
-				RunID:     r.runID,
-				Timestamp: time.Now(),
-				Payload:   []byte(fmt.Sprintf(`{"bytes":%d}`, n)),
-			}
-			_ = wsagent.SendEvent(context.Background(), wsagent.DefaultAddr(), ev)
-		})
-
-		utils.Info(fmt.Sprintf("Uploading part %d (offset %d, size %d) for file %s",
-			ch.Index, ch.Offset, ch.Size, filePath))
-
-		var uploadOutput *s3.UploadPartOutput
-		err = utils.Retry(5, 2*time.Second, func() error {
-			var partErr error
-			uploadOutput, partErr = u.s3Client.UploadPart(context.Background(), &s3.UploadPartInput{
-				Body:          pr, // progress-wrapped
-				Bucket:        &u.Config.Bucket,
-				Key:           &s3Key,
-				PartNumber:    aws.Int32(int32(ch.Index)),
-				UploadId:      &uploadID,
-				ContentLength: aws.Int64(ch.Size),
-			})
-			if partErr != nil {
-				utils.Error(fmt.Sprintf("Failed to upload part %d: %v", ch.Index, partErr))
-				return partErr
-			}
-			return nil
-		})
-		_ = pr.Close()
-
-		if err != nil {
-			utils.Error(fmt.Sprintf("Failed to upload part %d after retries: %v", ch.Index, err))
-			r.error(fmt.Sprintf("upload part %d failed after retries: %v", ch.Index, err), &ch.Index)
-			_ = u.AbortMultipartUpload(s3Key, uploadID)
-			r.done(false, uploadID)
-			return fmt.Errorf("failed to upload part %d after retries: %w", ch.Index, err)
-		}
-
-		if uploadOutput.ETag == nil {
-			utils.Error(fmt.Sprintf("ETag for part %d is nil. Aborting upload.", ch.Index))
-			r.error(fmt.Sprintf("nil ETag on part %d", ch.Index), &ch.Index)
-			_ = u.AbortMultipartUpload(s3Key, uploadID)
-			r.done(false, uploadID)
-			return fmt.Errorf("ETag for part %d is nil", ch.Index)
-		}
-
-		// 상태 저장 + 누적 파트 목록
-		status.AddCompletedPart(ch.Index, *uploadOutput.ETag)
-		if err := status.SaveStatus(statusFilePath); err != nil {
-			utils.Error(fmt.Sprintf("Failed to save status after completing part %d: %v", ch.Index, err))
-		}
-		completedParts = append(completedParts, s3types.CompletedPart{
-			PartNumber: aws.Int32(int32(ch.Index)),
-			ETag:       uploadOutput.ETag,
-		})
-
-		_ = partBar.Finish()
-		utils.Info(fmt.Sprintf("Successfully uploaded part %d. ETag: %s", ch.Index, *uploadOutput.ETag))
-
-		// WS: 파트 완료
-		r.partDone(ch.Index, ch.Size, *uploadOutput.ETag)
 	}
 
 	// Complete 전에 파트 오름차순 정렬(안전)

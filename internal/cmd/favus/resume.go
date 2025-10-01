@@ -3,6 +3,7 @@ package favus
 import (
 	"fmt"
 
+	"github.com/GoCOMA/Favus/internal/uploader"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +22,8 @@ var resumeCmd = &cobra.Command{
 If some fields are missing, they are taken from config/ENV, then prompted as needed.`,
 	Example: `
   favus resume --file ./upload.status
-  favus resume --file ./upload.status -c config.yaml`,
+  favus resume --file ~/.favus/status/large-test.bin_abcd1234.upload_status
+  favus resume --auto  # automatically find the latest status file`,
 	RunE: runResume,
 }
 
@@ -31,22 +33,44 @@ func runResume(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("status file validation failed: %w", err)
 	}
 
-	// Load and validate config
-	conf, err := LoadConfigWithOverrides(resumeBucket, resumeKey, "")
+	// Load status file to get bucket/key information
+	status, err := uploader.LoadStatus(resumeFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to load status file: %w", err)
+	}
+
+	// Use status file info as defaults, allow flag overrides
+	bucketName := resumeBucket
+	if bucketName == "" {
+		bucketName = status.Bucket
+	}
+	keyName := resumeKey
+	if keyName == "" {
+		keyName = status.Key
+	}
+	uploadIDValue := uploadID
+	if uploadIDValue == "" {
+		uploadIDValue = status.UploadID
+	}
+
+	// Load and validate config with status file info
+	conf, err := LoadConfigWithOverrides(bucketName, keyName, "")
 	if err != nil {
 		return err
 	}
 
-	// Apply uploadID override
-	if uploadID != "" {
-		conf.UploadID = uploadID
+	// Apply uploadID from status file
+	conf.UploadID = uploadIDValue
+
+	// Validate that we have required fields (should be available from status file)
+	if conf.Bucket == "" {
+		return fmt.Errorf("bucket not found in status file or config")
+	}
+	if conf.Key == "" {
+		return fmt.Errorf("key not found in status file or config")
 	}
 
-	// Prompt for missing required fields
-	validator := NewConfigValidator(conf).RequireBucket().RequireKey()
-	PromptForMissingConfig(validator)
-
-	// Prompt for UploadID if still missing (may come from status file)
+	// Prompt for UploadID if still missing
 	if conf.UploadID == "" {
 		conf.UploadID = PromptInput("🔁 Enter Upload ID")
 	}

@@ -154,7 +154,10 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 	r.start(u.Config.Bucket, s3Key, uploadID, u.Config.PartSizeBytes(), nil)
 
 	// Prepare status tracker
-	statusFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_%s.upload_status", filepath.Base(filePath), uploadID[:8]))
+	home, _ := os.UserHomeDir()
+	statusDir := filepath.Join(home, ".favus", "status")
+	os.MkdirAll(statusDir, 0755)
+	statusFilePath := filepath.Join(statusDir, fmt.Sprintf("%s_%s.upload_status", filepath.Base(filePath), uploadID[:8]))
 	utils.Info(fmt.Sprintf("Status file will be saved to: %s", statusFilePath))
 	status := NewWSTracker(
 		NewUploadStatus(filePath, u.Config.Bucket, s3Key, uploadID, len(chunks), u.Config.PartSizeBytes()),

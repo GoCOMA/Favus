@@ -262,6 +262,14 @@ func (ru *ResumeUploader) ResumeUpload(statusFilePath string) error {
 		utils.Error(fmt.Sprintf("Failed to remove status file %s: %v", statusFilePath, err))
 	}
 
+	// Clean up chunk files
+	utils.Info(fmt.Sprintf("Starting chunk cleanup for %s", status.FilePath))
+	if err := fileChunker.CleanupChunks(); err != nil {
+		utils.Error(fmt.Sprintf("Failed to cleanup chunks for %s: %v", status.FilePath, err))
+	} else {
+		utils.Info(fmt.Sprintf("Successfully cleaned up chunks for %s", status.FilePath))
+	}
+
 	return nil
 }
 

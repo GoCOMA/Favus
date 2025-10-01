@@ -155,6 +155,7 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 
 	// Prepare status tracker
 	statusFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_%s.upload_status", filepath.Base(filePath), uploadID[:8]))
+	utils.Info(fmt.Sprintf("Status file will be saved to: %s", statusFilePath))
 	status := NewWSTracker(
 		NewUploadStatus(filePath, u.Config.Bucket, s3Key, uploadID, len(chunks), u.Config.PartSizeBytes()),
 	)
@@ -288,6 +289,11 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 	// Clean up status file
 	if err := os.Remove(statusFilePath); err != nil {
 		utils.Error(fmt.Sprintf("Failed to remove status file %s: %v", statusFilePath, err))
+	}
+
+	// Clean up chunk files
+	if err := fileChunker.CleanupChunks(); err != nil {
+		utils.Error(fmt.Sprintf("Failed to cleanup chunks for %s: %v", filePath, err))
 	}
 
 	return nil

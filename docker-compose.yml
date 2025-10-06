@@ -1,10 +1,22 @@
 services:
+  redis:
+    image: redis/redis-stack:7.2.0-v3
+    ports:
+      - "6379:6379"
+      - "8001:8001"  # RedisInsight
+    restart: unless-stopped
+    command: redis-stack-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    
   wsserver:
     build: .
     command: ["python3", "internal/wsserver/server.py"]
     ports:
       - "8765:8765"
     restart: unless-stopped
+    depends_on:
+      - redis
     
   favus-backend:
     build: .
@@ -14,8 +26,13 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_REGION=${AWS_REGION:-ap-northeast-2}
       - AWS_PROFILE=${AWS_PROFILE:-default}
+      - REDIS_URL=redis://localhost:6379
     volumes:
       - ~/.aws:/root/.aws:ro
     restart: unless-stopped
     depends_on:
       - wsserver
+      - redis
+
+volumes:
+  redis_data:

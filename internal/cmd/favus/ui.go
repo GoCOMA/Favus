@@ -83,6 +83,12 @@ func runUI(cmd *cobra.Command, args []string) error {
 		uiAPIKey = os.Getenv("FAVUS_WS_API_KEY")
 	}
 
+	var (
+		frontendCmd   *exec.Cmd
+		frontendWaitC chan error
+		frontendURL   string
+	)
+
 	// 1) 이미 떠있으면 스킵 (원하면 --open 처리만 수행)
 	if wsagent.IsRunningAt(uiAddrFlag) {
 		fmt.Printf("🔁 UI agent already running at http://%s\n", uiAddrFlag)
@@ -188,11 +194,55 @@ func runUI(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("✅ UI agent started: http://%s  → %s\n", cfg.Addr, cfg.WSEndpoint)
 
+	// 3-a) Next.js 프론트엔드(dev 서버) 실행
+	frontendDir := filepath.Join("internal", "web", "ui")
+	if info, err := os.Stat(frontendDir); err == nil && info.IsDir() {
+		pkgJSON := filepath.Join(frontendDir, "package.json")
+		if _, err := os.Stat(pkgJSON); err == nil {
+			fc := exec.Command("npm", "run", "dev", "--", "--hostname", "0.0.0.0")
+			fc.Dir = frontendDir
+			fc.Stdout = os.Stdout
+			fc.Stderr = os.Stderr
+			fc.Env = os.Environ()
+
+			if err := fc.Start(); err != nil {
+				if errors.Is(err, exec.ErrNotFound) {
+					return fmt.Errorf("failed to start frontend dev server: npm not found in PATH")
+				}
+				return fmt.Errorf("failed to start frontend dev server: %w", err)
+			}
+
+			fmt.Printf("🎨 Frontend dev server starting (pid %d) at http://127.0.0.1:3000\n", fc.Process.Pid)
+			frontendCmd = fc
+			frontendURL = "http://127.0.0.1:3000/"
+			frontendWaitC = make(chan error, 1)
+			go func() {
+				err := fc.Wait()
+				if err != nil {
+					if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 130 {
+						// expected when interrupted via SIGINT
+					} else {
+						fmt.Fprintf(os.Stderr, "warn: frontend dev server exited: %v\n", err)
+					}
+				}
+				frontendWaitC <- err
+			}()
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("check frontend package: %w", err)
+		}
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("check frontend directory: %w", err)
+	}
+
 	// 4) 필요 시 브라우저 오픈
 	if uiOpenBrowser {
 		toOpen := uiOpenURL
 		if toOpen == "" {
-			toOpen = deriveUIURL(uiWSEndpoint)
+			if frontendURL != "" {
+				toOpen = frontendURL
+			} else {
+				toOpen = deriveUIURL(uiWSEndpoint)
+			}
 		}
 		_ = openBrowserSafe(toOpen)
 	}
@@ -206,6 +256,17 @@ func runUI(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = ag.Stop(ctx)
+	if frontendCmd != nil && frontendCmd.Process != nil {
+		_ = frontendCmd.Process.Signal(os.Interrupt)
+		if frontendWaitC != nil {
+			select {
+			case <-frontendWaitC:
+			case <-time.After(3 * time.Second):
+				_ = frontendCmd.Process.Kill()
+				<-frontendWaitC
+			}
+		}
+	}
 	_ = wsCmd.Process.Kill() // WebSocket 서버도 같이 정리
 	fmt.Println("👋 UI agent stopped.")
 	return nil

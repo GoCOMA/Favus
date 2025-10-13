@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/GoCOMA/Favus/internal/chunker"
@@ -105,22 +107,72 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 		return err
 	}
 
-	fileInfo, err := os.Stat(filePath)
+	originalInfo, err := os.Stat(filePath)
 	if err != nil {
 		utils.Error(fmt.Sprintf("Failed to get file info for %s: %v", filePath, err))
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
-	if fileInfo.Size() == 0 {
+	if originalInfo.Size() == 0 {
 		utils.Info(fmt.Sprintf("File %s is empty, skipping upload", filePath))
 		return nil
 	}
 
-	// WS reporter (에이전트가 떠있을 때만 실제로 전송)
-	r := newWSReporter(fileInfo.Size())
+	uploadPath := filePath
+	uploadInfo := originalInfo
+	removeCompressed := false
+	var metadata map[string]string
+	var extra map[string]any
 
-	fileChunker, err := chunker.NewFileChunker(filePath, u.Config.PartSizeBytes())
+	if u.Config.Compress {
+		utils.Info("Compression enabled; creating gzip archive before upload.")
+		var err error
+		uploadPath, err = compressToTempGzip(filePath)
+		if err != nil {
+			return fmt.Errorf("compress file: %w", err)
+		}
+		removeCompressed = true
+
+		uploadInfo, err = os.Stat(uploadPath)
+		if err != nil {
+			return fmt.Errorf("stat compressed file: %w", err)
+		}
+
+		if !strings.HasSuffix(strings.ToLower(s3Key), ".gz") {
+			s3Key = s3Key + ".gz"
+			utils.Info(fmt.Sprintf("Object key updated to include .gz suffix: %s", s3Key))
+		}
+		u.Config.Key = s3Key
+
+		metadata = map[string]string{
+			"favus-original-name": filepath.Base(filePath),
+			"favus-original-size": strconv.FormatInt(originalInfo.Size(), 10),
+		}
+		extra = map[string]any{
+			"compressed":      true,
+			"originalBytes":   originalInfo.Size(),
+			"originalName":    filepath.Base(filePath),
+			"compressedBytes": uploadInfo.Size(),
+		}
+		utils.Info(fmt.Sprintf("Compression result: %d bytes → %d bytes", originalInfo.Size(), uploadInfo.Size()))
+	}
+
+	success := false
+	defer func() {
+		if success && removeCompressed {
+			if err := os.Remove(uploadPath); err != nil {
+				utils.Error(fmt.Sprintf("Failed to remove temporary compressed file %s: %v", uploadPath, err))
+			} else {
+				utils.Info(fmt.Sprintf("Removed temporary compressed file: %s", uploadPath))
+			}
+		}
+	}()
+
+	// WS reporter (에이전트가 떠있을 때만 실제로 전송)
+	r := newWSReporter(uploadInfo.Size())
+
+	fileChunker, err := chunker.NewFileChunker(uploadPath, u.Config.PartSizeBytes())
 	if err != nil {
-		utils.Error(fmt.Sprintf("Failed to create file chunker for %s: %v", filePath, err))
+		utils.Error(fmt.Sprintf("Failed to create file chunker for %s: %v", uploadPath, err))
 		r.error(fmt.Sprintf("create chunker: %v", err), nil)
 		return fmt.Errorf("failed to create file chunker: %w", err)
 	}
@@ -128,7 +180,7 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 
 	// Progress bars: total + per-part
 	totalBar := progressbar.NewOptions64(
-		fileInfo.Size(),
+		uploadInfo.Size(),
 		progressbar.OptionSetDescription("total"),
 		progressbar.OptionShowBytes(true),
 		progressbar.OptionSetWidth(30),
@@ -138,10 +190,17 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 	)
 
 	// Initiate multipart upload
-	initiateOutput, err := u.s3Client.CreateMultipartUpload(context.Background(), &s3.CreateMultipartUploadInput{
+	initInput := &s3.CreateMultipartUploadInput{
 		Bucket: &u.Config.Bucket,
 		Key:    &s3Key,
-	})
+	}
+	if u.Config.Compress {
+		initInput.ContentEncoding = aws.String("gzip")
+		if len(metadata) > 0 {
+			initInput.Metadata = metadata
+		}
+	}
+	initiateOutput, err := u.s3Client.CreateMultipartUpload(context.Background(), initInput)
 	if err != nil {
 		utils.Error(fmt.Sprintf("Failed to initiate multipart upload for %s: %v", s3Key, err))
 		r.error(fmt.Sprintf("initiate multipart: %v", err), nil)
@@ -151,17 +210,20 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 	utils.Info(fmt.Sprintf("Initiated multipart upload with UploadID: %s", uploadID))
 
 	// WS: 세션 시작
-	r.start(u.Config.Bucket, s3Key, uploadID, u.Config.PartSizeBytes(), nil)
+	r.start(u.Config.Bucket, s3Key, uploadID, u.Config.PartSizeBytes(), extra)
 
 	// Prepare status tracker
 	home, _ := os.UserHomeDir()
 	statusDir := filepath.Join(home, ".favus", "status")
 	os.MkdirAll(statusDir, 0755)
-	statusFilePath := filepath.Join(statusDir, fmt.Sprintf("%s_%s.upload_status", filepath.Base(filePath), uploadID[:8]))
+	statusFilePath := filepath.Join(statusDir, fmt.Sprintf("%s_%s.upload_status", filepath.Base(uploadPath), uploadID[:8]))
 	utils.Info(fmt.Sprintf("Status file will be saved to: %s", statusFilePath))
 	status := NewWSTracker(
-		NewUploadStatus(filePath, u.Config.Bucket, s3Key, uploadID, len(chunks), u.Config.PartSizeBytes()),
+		NewUploadStatus(uploadPath, u.Config.Bucket, s3Key, uploadID, len(chunks), u.Config.PartSizeBytes()),
 	)
+	if u.Config.Compress {
+		status.UploadStatus.OriginalFilePath = filePath
+	}
 
 	var completedParts []s3types.CompletedPart
 	// Concurrently upload chunks
@@ -176,7 +238,7 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 	for w := 1; w <= maxConcurrency; w++ {
 		go func(workerID int) {
 			for ch := range jobs {
-				utils.Info(fmt.Sprintf("[Worker %d] Uploading part %d for file %s", workerID, ch.Index, filePath))
+				utils.Info(fmt.Sprintf("[Worker %d] Uploading part %d for file %s", workerID, ch.Index, uploadPath))
 
 				reader, err := fileChunker.GetChunkReader(ch)
 				if err != nil {
@@ -296,9 +358,10 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 
 	// Clean up chunk files
 	if err := fileChunker.CleanupChunks(); err != nil {
-		utils.Error(fmt.Sprintf("Failed to cleanup chunks for %s: %v", filePath, err))
+		utils.Error(fmt.Sprintf("Failed to cleanup chunks for %s: %v", uploadPath, err))
 	}
 
+	success = true
 	return nil
 }
 

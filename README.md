@@ -43,6 +43,7 @@ Multipart upload to S3 is efficient, but partial failures often leave **invisibl
 - **Smart chunking:** Splits extremely large files into parts and uploads them concurrently for speed and throughput.
 - **Dual progress bars:** Terminal shows overall & per-part progress; Web UI shows **vertical, per-part bars** (blue=done, red=failed, gray=pending).
 - **Auto-resume & recovery:** Uses a JSON state file to pick up exactly where it left off after interruptions. **Exponential backoff** on transient errors.
+- **Optional gzip compression:** Add `--compress` (or `compress: true` in config) to shrink payloads and automatically tag the object with `Content-Encoding: gzip`.
 
 ### Realtime monitoring
 
@@ -137,6 +138,9 @@ npm run build && npm run start
 # Upload a file
 favus upload ./bigfile.mov s3://your-bucket/path/bigfile.mov
 
+# Upload with on-the-fly gzip compression (object key will gain .gz)
+favus upload --file ./bigfile.mov --bucket your-bucket --key path/bigfile.mov --compress
+
 # Resume a stopped upload (state file is created automatically)
 favus resume ./bigfile.mov.state.json
 
@@ -146,6 +150,15 @@ favus ls-orphans s3://your-bucket/path/
 # Remove orphan parts
 favus rm-orphans s3://your-bucket/path/
 ```
+
+### Compression flags & config
+
+- **CLI:** `favus upload ... --compress` (`--compress=false` to disable explicitly)
+- **Config YAML:** `compress: true`
+- **ENV override:** `FAVUS_COMPRESS=true`
+- 기본적으로 CLI가 실행될 때 `압축해서 업로드할까요?` 라고 물어보며, `y/yes` 로 답하면 이번 실행에 한해 압축이 활성화됩니다. 플래그나 설정이 지정돼 있으면 프롬프트 없이 해당 값이 사용됩니다.
+
+Compressed runs write a temporary archive under `~/.favus/compressed/`. It is preserved on failure to enable resume, and removed automatically once the upload finishes successfully.
 
 ---
 

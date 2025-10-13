@@ -9,14 +9,15 @@ import (
 
 // UploadStatus represents the status of a multipart upload.
 type UploadStatus struct {
-	FilePath       string         `json:"filePath"`
-	UploadID       string         `json:"uploadId"`
-	Bucket         string         `json:"bucket"`
-	Key            string         `json:"key"`
-	CompletedParts map[int]string `json:"completedParts"`
-	TotalParts     int            `json:"totalParts"`
-	PartSizeBytes  int64          `json:"partSizeBytes"`
-	Mu             sync.Mutex     `json:"-"`
+	FilePath         string         `json:"filePath"`
+	OriginalFilePath string         `json:"originalFilePath,omitempty"`
+	UploadID         string         `json:"uploadId"`
+	Bucket           string         `json:"bucket"`
+	Key              string         `json:"key"`
+	CompletedParts   map[int]string `json:"completedParts"`
+	TotalParts       int            `json:"totalParts"`
+	PartSizeBytes    int64          `json:"partSizeBytes"`
+	Mu               sync.Mutex     `json:"-"`
 }
 
 // NewUploadStatus creates a new UploadStatus.

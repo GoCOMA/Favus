@@ -14,14 +14,28 @@ async def handler(connection, path=None):
         async for message in connection:
             print(f"📩 Received: {message}")
             # 브로드캐스트 (보낸 사람 제외, 열린 연결만)
-            for client in CONNECTED_CLIENTS:
-                if client != connection and not client.closed:
+            for client in list(CONNECTED_CLIENTS):
+                if client is connection:
+                    continue
+                closed = getattr(client, "closed", None)
+                if closed is True:
+                    CONNECTED_CLIENTS.discard(client)
+                    continue
+                if callable(closed):
                     try:
-                        await client.send(message)
-                    except websockets.ConnectionClosed as e:
-                        print(f"⚠️ Send failed to {client.remote_address}: {e}")
-                    except Exception as e:
-                        print(f"⚠️ Send failed with other error to {client.remote_address}: {e}")
+                        closed = closed()
+                    except Exception:
+                        closed = False
+                if closed:
+                    CONNECTED_CLIENTS.discard(client)
+                    continue
+                try:
+                    await client.send(message)
+                except websockets.ConnectionClosed as e:
+                    print(f"⚠️ Send failed to {client.remote_address}: {e}")
+                    CONNECTED_CLIENTS.discard(client)
+                except Exception as e:
+                    print(f"⚠️ Send failed with other error to {client.remote_address}: {e}")
 
     except websockets.ConnectionClosed:
         print(f"❌ Client disconnected: {connection.remote_address}")

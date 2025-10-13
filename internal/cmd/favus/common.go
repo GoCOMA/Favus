@@ -109,6 +109,27 @@ func PromptIntWithValidation(label string, defaultValue, minValue int) int {
 	return minValue
 }
 
+func PromptYesNoDefault(label string, defaultYes bool) bool {
+	defaultHint := "y/N"
+	if defaultYes {
+		defaultHint = "Y/n"
+	}
+	for {
+		input := PromptInput(fmt.Sprintf("%s [%s]", label, defaultHint))
+		if input == "" {
+			return defaultYes
+		}
+		switch strings.ToLower(input) {
+		case "y", "yes":
+			return true
+		case "n", "no":
+			return false
+		default:
+			fmt.Println("y 또는 n으로 응답해주세요.")
+		}
+	}
+}
+
 func LoadConfigWithOverrides(flagBucket, flagKey, flagRegion string) (*config.Config, error) {
 	conf := GetLoadedConfig()
 	if conf == nil {

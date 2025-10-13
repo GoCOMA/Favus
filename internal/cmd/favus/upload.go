@@ -8,9 +8,10 @@ import (
 
 // CLI flags
 var (
-	filePath  string
-	bucket    string
-	objectKey string
+	filePath       string
+	bucket         string
+	objectKey      string
+	uploadCompress bool
 )
 
 var uploadCmd = &cobra.Command{
@@ -24,7 +25,7 @@ Handles chunking, retries, resume support, and progress visualization automatica
 	RunE: runUpload,
 }
 
-func runUpload(_ *cobra.Command, _ []string) error {
+func runUpload(cmd *cobra.Command, _ []string) error {
 	// Load and validate config
 	conf, err := LoadConfigWithOverrides(bucket, objectKey, "")
 	if err != nil {
@@ -48,6 +49,13 @@ func runUpload(_ *cobra.Command, _ []string) error {
 
 	conf.PartSizeMB = PromptIntWithValidation("📦 Enter part size in MB", defaultPartSize, MinPartSizeMB)
 	conf.MaxConcurrency = PromptIntWithValidation("🔁 Enter max concurrency", defaultConcurrency, MinConcurrency)
+
+	// Compression prompt (unless explicitly set via flag)
+	if cmd.Flags().Changed("compress") {
+		conf.Compress = uploadCompress
+	} else {
+		conf.Compress = PromptYesNoDefault("🗜  압축해서 업로드할까요?", conf.Compress)
+	}
 
 	// Validate local file
 	if err := ValidateFile(filePath); err != nil {
@@ -73,5 +81,7 @@ func init() {
 	uploadCmd.Flags().StringVarP(&filePath, "file", "f", "", "Path to the local file to upload (required)")
 	uploadCmd.Flags().StringVarP(&bucket, "bucket", "b", "", "Target S3 bucket name (overrides config/ENV)")
 	uploadCmd.Flags().StringVarP(&objectKey, "key", "k", "", "S3 object key (overrides config/ENV)")
+	uploadCmd.Flags().BoolVar(&uploadCompress, "compress", false, "Compress the file with gzip before uploading")
+	uploadCmd.Flags().Lookup("compress").NoOptDefVal = "true"
 	_ = uploadCmd.MarkFlagRequired("file")
 }

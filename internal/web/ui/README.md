@@ -37,6 +37,9 @@ pnpm install
 
 ## Running a local development server
 
+> Tip: `./favus ui --endpoint ws://127.0.0.1:8765/ws --foreground` now launches this dev server for you (make sure `npm install` has been run at least once).  
+> WSL/리눅스 환경에서는 `http://<호스트 IP>:3000`으로 접근할 수 있도록 `0.0.0.0`에 바인딩됩니다.
+
 ```bash
 npm run dev
 # http://localhost:3000

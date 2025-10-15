@@ -156,7 +156,7 @@ favus rm-orphans s3://your-bucket/path/
 - **CLI:** `favus upload ... --compress` (`--compress=false` to disable explicitly)
 - **Config YAML:** `compress: true`
 - **ENV override:** `FAVUS_COMPRESS=true`
-- 기본적으로 CLI가 실행될 때 `압축해서 업로드할까요?` 라고 물어보며, `y/yes` 로 답하면 이번 실행에 한해 압축이 활성화됩니다. 플래그나 설정이 지정돼 있으면 프롬프트 없이 해당 값이 사용됩니다.
+- By default, when the CLI is running, you are asked, 'Do you want me to upload it in compression?' and if you answer 'y/yes', compression is enabled only for this run. If a flag or setting is specified, it will be used without prompt.
 
 Compressed runs write a temporary archive under `~/.favus/compressed/`. It is preserved on failure to enable resume, and removed automatically once the upload finishes successfully.
 

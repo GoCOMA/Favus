@@ -125,7 +125,7 @@ func PromptYesNoDefault(label string, defaultYes bool) bool {
 		case "n", "no":
 			return false
 		default:
-			fmt.Println("y 또는 n으로 응답해주세요.")
+			fmt.Println("Please respond with y or n.")
 		}
 	}
 }

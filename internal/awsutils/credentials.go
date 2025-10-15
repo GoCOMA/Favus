@@ -27,7 +27,7 @@ func LoadAWSConfig(profile string) (aws.Config, error) {
 	// 1차 시도: 기존 config/cached env
 	cfg, err = config.LoadDefaultConfig(context.TODO(), opts...)
 	if err != nil {
-		// AWS 설정 파일 문법 오류 등 실제 오류는 반환하ㅏ게 했습니다
+		// AWS 설정 파일 문법 오류 등 실제 오류는 반환
 		if isConfigSyntaxError(err) {
 			return cfg, fmt.Errorf(" AWS 설정 파일 오류: %w", err)
 		}

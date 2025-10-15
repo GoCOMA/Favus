@@ -27,6 +27,7 @@ type Config struct {
 	Region         string `mapstructure:"region"`
 	PartSizeMB     int    `mapstructure:"partSizeMB"`
 	MaxConcurrency int    `mapstructure:"maxConcurrency"`
+	Compress       bool   `mapstructure:"compress"`
 	UploadID       string
 }
 
@@ -102,6 +103,13 @@ func applyEnvOverrides(c *Config) {
 			c.PartSizeMB = mb
 		} else {
 			fmt.Printf("Warning: invalid CHUNK_SIZE '%s'. Using %dMB.\n", v, minPartSizeMB)
+		}
+	}
+	if v := os.Getenv("FAVUS_COMPRESS"); v != "" {
+		if b, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {
+			c.Compress = b
+		} else {
+			fmt.Printf("Warning: invalid FAVUS_COMPRESS '%s'. Expected true/false.\n", v)
 		}
 	}
 }

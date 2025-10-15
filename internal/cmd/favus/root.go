@@ -57,7 +57,8 @@ func loadConfigFromFile(cfgPath string) (*config.Config, error) {
 	return config.LoadConfig(cfgPath)
 }
 
-func applyCommandSpecificOverrides(cmdName string, cfg *config.Config) {
+func applyCommandSpecificOverrides(cmd *cobra.Command, cfg *config.Config) {
+	cmdName := cmd.Name()
 	switch CommandType(cmdName) {
 	case CmdUpload:
 		if bucket != "" {
@@ -65,6 +66,9 @@ func applyCommandSpecificOverrides(cmdName string, cfg *config.Config) {
 		}
 		if objectKey != "" {
 			cfg.Key = objectKey
+		}
+		if cmd.Flags().Changed("compress") {
+			cfg.Compress = uploadCompress
 		}
 	case CmdResume:
 		if resumeBucket != "" {
@@ -183,7 +187,7 @@ func setupConfigForCommand(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Apply command-specific flag overrides
-	applyCommandSpecificOverrides(cmd.Name(), cfg)
+	applyCommandSpecificOverrides(cmd, cfg)
 
 	// Check if interactive config is needed
 	if requiresInteractiveConfig(cmd.Name(), cfg) {

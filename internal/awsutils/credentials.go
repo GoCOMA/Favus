@@ -15,23 +15,35 @@ import (
 
 // 인증 정보 불러오기: 없으면 프롬프트
 func LoadAWSConfig(profile string) (aws.Config, error) {
+	var cfg aws.Config
+	var err error
+	var creds aws.Credentials
+
 	opts := []func(*config.LoadOptions) error{}
 	if profile != "" {
 		opts = append(opts, config.WithSharedConfigProfile(profile))
 	}
 
 	// 1차 시도: 기존 config/cached env
-	cfg, err := config.LoadDefaultConfig(context.TODO(), opts...)
+	cfg, err = config.LoadDefaultConfig(context.TODO(), opts...)
 	if err != nil {
-		return cfg, err
+		// AWS 설정 파일 문법 오류 등 실제 오류는 반환
+		if isConfigSyntaxError(err) {
+			return cfg, fmt.Errorf(" AWS 설정 파일 오류: %w", err)
+		}
+		// 파일 없음 등은 경고만 출력하고 대화형 입력으로 진행합니다.
+		fmt.Printf(" AWS 설정 로드 실패: %v\n", err)
+		fmt.Println(" 대화형 입력으로 진행합니다.\n")
+		goto promptCredentials
 	}
 
-	creds, err := cfg.Credentials.Retrieve(context.TODO())
+	creds, err = cfg.Credentials.Retrieve(context.TODO())
 	if err == nil {
 		fmt.Printf("✅ 인증된 AWS 사용자: %s\n", creds.AccessKeyID)
 		return cfg, nil
 	}
 
+promptCredentials:
 	// 인증 정보 누락됨
 	fmt.Println("❌ AWS 인증 정보가 누락되었습니다.")
 	fmt.Println("💬 입력을 통해 인증 정보를 설정합니다.")
@@ -88,6 +100,29 @@ func promptIfEmpty(accessKey, secretKey, region string) (string, string, string)
 func isMissingCredentials(err error) bool {
 	var apiErr smithy.APIError
 	return errors.As(err, &apiErr)
+}
+
+// AWS 설정 파일의 문법 오류인지 확인
+func isConfigSyntaxError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	// INI 파싱 에러, 잘못된 형식, 문법 오류 등을 감지
+	syntaxKeywords := []string{
+		"invalid",
+		"parse",
+		"malformed",
+		"syntax",
+		"unmarshaling",
+		"unmarshal",
+	}
+	for _, keyword := range syntaxKeywords {
+		if strings.Contains(errStr, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultIfEmpty(val string, def string) string {

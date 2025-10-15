@@ -13,6 +13,7 @@ import (
 
 	"github.com/GoCOMA/Favus/internal/chunker"
 	"github.com/GoCOMA/Favus/internal/config"
+	"github.com/GoCOMA/Favus/internal/duplicate"
 	"github.com/GoCOMA/Favus/pkg/utils"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,8 +26,9 @@ import (
 
 // Uploader manages file uploads, deletions, and multipart upload operations for S3.
 type Uploader struct {
-	s3Client *s3.Client
-	Config   *config.Config
+	s3Client         *s3.Client
+	Config           *config.Config
+	duplicateChecker *duplicate.DuplicateChecker
 }
 
 // ResumeUpload proxies to ResumeUploader so main can call on *Uploader.
@@ -91,15 +93,43 @@ func NewUploader(cfgApp *config.Config) (*Uploader, error) {
 		}
 	})
 
+	// Create duplicate checker (unless explicitly disabled)
+	var duplicateChecker *duplicate.DuplicateChecker
+	if os.Getenv("DISABLE_DUPLICATE_CHECK") != "true" {
+		duplicateChecker, err = duplicate.NewDuplicateChecker(cfgApp)
+		if err != nil {
+			utils.Error(fmt.Sprintf("Failed to create duplicate checker: %v", err))
+			// Continue without duplicate checking if Redis is not available
+			duplicateChecker = nil
+		}
+	} else {
+		utils.Info("Duplicate checking is disabled via DISABLE_DUPLICATE_CHECK env var")
+		duplicateChecker = nil
+	}
+
 	return &Uploader{
-		s3Client: cli,
-		Config:   cfgApp,
+		s3Client:         cli,
+		Config:           cfgApp,
+		duplicateChecker: duplicateChecker,
 	}, nil
 }
 
 // UploadFile performs a multipart upload of a local file to S3.
 func (u *Uploader) UploadFile(filePath, s3Key string) error {
 	utils.Info(fmt.Sprintf("Starting multipart upload for file: %s to s3://%s/%s", filePath, u.Config.Bucket, s3Key))
+
+	// Check for duplicates if duplicate checker is available
+	if u.duplicateChecker != nil {
+		shouldUpload, reason, err := u.duplicateChecker.CheckDuplicate(context.Background(), filePath, u.Config)
+		if err != nil {
+			utils.Error(fmt.Sprintf("Duplicate check failed: %v", err))
+			// Continue with upload if duplicate check fails
+		} else if !shouldUpload {
+			utils.Info(fmt.Sprintf("Skipping upload for file %s: %s", filePath, reason))
+			return nil
+		}
+		utils.Info(fmt.Sprintf("Duplicate check passed for file %s: %s", filePath, reason))
+	}
 
 	// Bucket verification
 	if err := u.checkBucket(u.Config.Bucket); err != nil {
@@ -348,6 +378,13 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 	utils.Info(fmt.Sprintf("Multipart upload completed successfully for %s", filePath))
 	r.done(true, uploadID)
 
+	// Record successful upload in duplicate checker
+	if u.duplicateChecker != nil {
+		if err := u.duplicateChecker.RecordUpload(context.Background(), filePath); err != nil {
+			utils.Error(fmt.Sprintf("Failed to record upload in duplicate checker: %v", err))
+		}
+	}
+
 	// Add a small delay to ensure WebSocket messages are sent before exiting.
 	time.Sleep(1 * time.Second)
 
@@ -417,9 +454,27 @@ func NewUploaderWithAWSConfig(cfgApp *config.Config, awsCfg aws.Config) (*Upload
 			o.UsePathStyle = true // LocalStack / custom S3-compatible endpoints
 		}
 	})
+
+	// Create duplicate checker (unless explicitly disabled)
+	var duplicateChecker *duplicate.DuplicateChecker
+	if os.Getenv("DISABLE_DUPLICATE_CHECK") != "true" {
+		dc, err := duplicate.NewDuplicateChecker(cfgApp)
+		if err != nil {
+			utils.Error(fmt.Sprintf("Failed to create duplicate checker: %v", err))
+			// Continue without duplicate checking if Redis is not available
+			duplicateChecker = nil
+		} else {
+			duplicateChecker = dc
+		}
+	} else {
+		utils.Info("Duplicate checking is disabled via DISABLE_DUPLICATE_CHECK env var")
+		duplicateChecker = nil
+	}
+
 	return &Uploader{
-		s3Client: cli,
-		Config:   cfgApp,
+		s3Client:         cli,
+		Config:           cfgApp,
+		duplicateChecker: duplicateChecker,
 	}, nil
 }
 

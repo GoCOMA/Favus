@@ -2,16 +2,29 @@
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Why Favus](#why-favus)
-- [Key Features](#key-features)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Getting Started](#getting-started)
-- [CLI Usage (Quick Peek)](#cli-usage-quick-peek)
-- [Web UI & Realtime Monitoring](#web-ui--realtime-monitoring)
-- [Message Schema (WebSocket)](#message-schema-websocket)
-- [License](#license)
+- [Favus — S3 Multipart Upload CLI \& Web UI](#favus--s3-multipart-upload-cli--web-ui)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+  - [Why Favus](#why-favus)
+  - [Key Features](#key-features)
+    - [High-volume, resilient transfer](#high-volume-resilient-transfer)
+    - [Realtime monitoring](#realtime-monitoring)
+    - [S3 management tooling](#s3-management-tooling)
+    - [Enterprise-minded design](#enterprise-minded-design)
+  - [Architecture](#architecture)
+  - [Tech Stack](#tech-stack)
+  - [Getting Started](#getting-started)
+    - [Prerequisites](#prerequisites)
+    - [Install dependencies](#install-dependencies)
+    - [Configure AWS](#configure-aws)
+    - [Build \& run (Web UI)](#build--run-web-ui)
+  - [CLI Usage (Quick Peek)](#cli-usage-quick-peek)
+    - [Compression flags \& config](#compression-flags--config)
+  - [Web UI \& Realtime Monitoring](#web-ui--realtime-monitoring)
+    - [WebSocket provider](#websocket-provider)
+    - [UI component](#ui-component)
+  - [Message Schema (WebSocket)](#message-schema-websocket)
+  - [License](#license)
 
 ---
 
@@ -115,7 +128,8 @@ Set environment variables or use your `~/.aws` profile:
 ```bash
 export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
-export AWS_REGION=ap-northeast-2
+export AWS_REGION=...
+export AWS_ENDPOINT_URL=...
 # optional:
 export AWS_PROFILE=default
 ```
@@ -124,8 +138,10 @@ export AWS_PROFILE=default
 
 ```bash
 npm run dev        # http://localhost:3000
+go mod tidy
 # production
 npm run build && npm run start
+go build -o favus cmd
 ```
 
 ---
@@ -136,19 +152,31 @@ npm run build && npm run start
 
 ```bash
 # Upload a file
-favus upload ./bigfile.mov s3://your-bucket/path/bigfile.mov
+favus upload -f ./bigfile.mov --bucket your-bucket <--key path/bigfile.mov>
 
 # Upload with on-the-fly gzip compression (object key will gain .gz)
 favus upload --file ./bigfile.mov --bucket your-bucket --key path/bigfile.mov --compress
 
 # Resume a stopped upload (state file is created automatically)
-favus resume ./bigfile.mov.state.json
+favus resume --file status-file --bucket your-bucket --key path/bigfile.mov --upload-id upload-id
+
+# List uploading processes
+favus list-uploads --bucket your-bucket
 
 # List orphan parts
-favus ls-orphans s3://your-bucket/path/
+favus ls-orphans --bucket your-bucket
+
+# List uploaded objects
+favus ls-objects --bucket your-bucket --prefix parent-dir <--max 50>
 
 # Remove orphan parts
-favus rm-orphans s3://your-bucket/path/
+favus kill-orphans --bucket your-bucket
+
+# Remove uploaded objects
+favus delete --bucket your-buecket --key path/bigfile.mov
+
+# Visualize uploading processes
+favus ui --endpoint ws://127.0.0.1:8765/ws --foreground
 ```
 
 ### Compression flags & config

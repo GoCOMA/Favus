@@ -27,6 +27,13 @@ type wsReporter struct {
 	uploadedBytes     int64
 	lastProgressFlush time.Time
 
+	lastCheck     time.Time
+	checkInterval time.Duration
+	lastErrorLog  time.Time
+
+	startPayload map[string]any
+	startSent    bool
+
 	parts map[int]*partTracker
 }
 
@@ -47,28 +54,24 @@ func newWSReporter(total int64) *wsReporter {
 		started:           time.Now(),
 		totalBytes:        total,
 		lastProgressFlush: time.Time{},
+		checkInterval:     2 * time.Second,
+		lastCheck:         time.Now().Add(-2 * time.Second),
 		parts:             make(map[int]*partTracker),
 	}
 }
 
 func (r *wsReporter) send(evType string, payload any) {
-	if !r.enabled {
+	if !r.ensureAgent() {
 		return
 	}
-	b, _ := json.Marshal(payload)
-	fmt.Printf("[WS-DEBUG] send → type=%s payload=%s\n", evType, string(b))
-	_ = wsagent.SendEvent(context.Background(), r.addr, wsagent.Event{
-		Type:      evType,
-		RunID:     r.runID,
-		Timestamp: time.Now(),
-		Payload:   b,
-	})
+	r.emitStart()
+	if !r.enabled || (r.startPayload != nil && !r.startSent) {
+		return
+	}
+	_ = r.writeEvent(evType, payload)
 }
 
 func (r *wsReporter) start(bucket, key, uploadID string, partSizeBytes int64, extra map[string]any) {
-	if !r.enabled {
-		return
-	}
 	p := map[string]any{
 		"bucket":   bucket,
 		"key":      key,
@@ -79,16 +82,21 @@ func (r *wsReporter) start(bucket, key, uploadID string, partSizeBytes int64, ex
 	for k, v := range extra {
 		p[k] = v
 	}
-	r.send("session_start", p)
+	r.startPayload = p
+	r.startSent = false
+	r.emitStart()
 }
 
 func (r *wsReporter) progressAdd(delta int64) {
-	if !r.enabled || delta <= 0 {
+	if delta <= 0 {
 		return
 	}
 	r.uploadedBytes += delta
 
 	// 250ms 스로틀
+	if !r.ensureAgent() {
+		return
+	}
 	now := time.Now()
 	if r.lastProgressFlush.IsZero() || now.Sub(r.lastProgressFlush) >= 250*time.Millisecond {
 		elapsed := now.Sub(r.started).Seconds()
@@ -112,10 +120,10 @@ func (r *wsReporter) progressAdd(delta int64) {
 
 func (r *wsReporter) totalProgressImmediate(bytes int64) {
 	// resume 초기 바이트 등 즉시 1회 송신
-	if !r.enabled {
+	r.uploadedBytes = bytes
+	if !r.ensureAgent() {
 		return
 	}
-	r.uploadedBytes = bytes
 	elapsed := time.Since(r.started).Seconds()
 	var bps float64
 	if elapsed > 0 {
@@ -135,9 +143,6 @@ func (r *wsReporter) totalProgressImmediate(bytes int64) {
 }
 
 func (r *wsReporter) partStart(part int, size int64, offset int64) {
-	if !r.enabled {
-		return
-	}
 	tr := &partTracker{
 		size:        size,
 		sent:        0,
@@ -153,7 +158,7 @@ func (r *wsReporter) partStart(part int, size int64, offset int64) {
 }
 
 func (r *wsReporter) partProgressAdd(part int, delta int64) {
-	if !r.enabled || delta <= 0 {
+	if delta <= 0 {
 		return
 	}
 	tr, ok := r.parts[part]
@@ -185,9 +190,6 @@ func (r *wsReporter) partProgressAdd(part int, delta int64) {
 }
 
 func (r *wsReporter) partDone(part int, size int64, etag string) {
-	if !r.enabled {
-		return
-	}
 	r.send("part_done", map[string]any{
 		"part": part,
 		"size": size,
@@ -197,9 +199,6 @@ func (r *wsReporter) partDone(part int, size int64, etag string) {
 }
 
 func (r *wsReporter) error(msg string, partNum *int) {
-	if !r.enabled {
-		return
-	}
 	payload := map[string]any{
 		"message": msg,
 	}
@@ -210,9 +209,6 @@ func (r *wsReporter) error(msg string, partNum *int) {
 }
 
 func (r *wsReporter) done(success bool, uploadID string) {
-	if !r.enabled {
-		return
-	}
 	dur := time.Since(r.started)
 	r.send("session_done", map[string]any{
 		"success":  success,
@@ -221,4 +217,60 @@ func (r *wsReporter) done(success bool, uploadID string) {
 		"bytes":    r.uploadedBytes,
 		"total":    r.totalBytes,
 	})
+}
+
+func (r *wsReporter) ensureAgent() bool {
+	if r.enabled {
+		return true
+	}
+	if time.Since(r.lastCheck) < r.checkInterval {
+		return false
+	}
+	r.lastCheck = time.Now()
+	if wsagent.IsRunningAt(r.addr) {
+		r.enabled = true
+		return true
+	}
+	return false
+}
+
+func (r *wsReporter) emitStart() {
+	if r.startPayload == nil || r.startSent {
+		return
+	}
+	if !r.ensureAgent() {
+		return
+	}
+	_ = r.writeEvent("session_start", r.startPayload)
+}
+
+func (r *wsReporter) writeEvent(evType string, payload any) error {
+	b, _ := json.Marshal(payload)
+	fmt.Printf("[WS-DEBUG] send → type=%s payload=%s\n", evType, string(b))
+	err := wsagent.SendEvent(context.Background(), r.addr, wsagent.Event{
+		Type:      evType,
+		RunID:     r.runID,
+		Timestamp: time.Now(),
+		Payload:   b,
+	})
+	if err != nil {
+		r.handleSendError(evType, err)
+		return err
+	}
+	if evType == "session_start" {
+		r.startSent = true
+	}
+	return nil
+}
+
+func (r *wsReporter) handleSendError(evType string, err error) {
+	if err == nil {
+		return
+	}
+	r.enabled = false
+	r.lastCheck = time.Now()
+	if time.Since(r.lastErrorLog) >= 5*time.Second {
+		fmt.Fprintf(os.Stderr, "warn: failed to deliver WebSocket event %q: %v\n", evType, err)
+		r.lastErrorLog = time.Now()
+	}
 }

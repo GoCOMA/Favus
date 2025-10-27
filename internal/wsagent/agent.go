@@ -129,6 +129,8 @@ type Agent struct {
 	mu     sync.Mutex // wsConn writes 보호
 	wsConn *websocket.Conn
 
+	writeTimeout time.Duration
+
 	httpSrv  *http.Server
 	started  chan struct{}
 	stopping chan struct{}
@@ -166,10 +168,11 @@ func Start(cfg AgentConfig) (*Agent, error) {
 	}
 
 	ag := &Agent{
-		cfg:      cfg,
-		wsConn:   conn,
-		started:  make(chan struct{}),
-		stopping: make(chan struct{}),
+		cfg:          cfg,
+		wsConn:       conn,
+		writeTimeout: 10 * time.Second,
+		started:      make(chan struct{}),
+		stopping:     make(chan struct{}),
 	}
 
 	// 2) 로컬 HTTP 서버
@@ -262,7 +265,7 @@ func (a *Agent) handleEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ws not connected", http.StatusServiceUnavailable)
 		return
 	}
-	if err := a.wsConn.WriteMessage(websocket.TextMessage, body); err != nil {
+	if err := a.writeMessageLocked(websocket.TextMessage, body); err != nil {
 		http.Error(w, "ws write failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -309,8 +312,7 @@ func (a *Agent) pingLoop() {
 		case <-t.C:
 			a.mu.Lock()
 			if a.wsConn != nil {
-				_ = a.wsConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				_ = a.wsConn.WriteMessage(websocket.PingMessage, []byte("ping"))
+				_ = a.writeMessageLocked(websocket.PingMessage, []byte("ping"))
 			}
 			a.mu.Unlock()
 		}
@@ -332,4 +334,18 @@ func pidFilePath() string {
 func writePID(path string) error {
 	pid := os.Getpid()
 	return os.WriteFile(path, []byte(fmt.Sprint(pid)), 0o644)
+}
+
+func (a *Agent) writeMessageLocked(messageType int, data []byte) error {
+	if a.wsConn == nil {
+		return errors.New("wsconnection not available")
+	}
+	if a.writeTimeout > 0 {
+		_ = a.wsConn.SetWriteDeadline(time.Now().Add(a.writeTimeout))
+	}
+	err := a.wsConn.WriteMessage(messageType, data)
+	if a.writeTimeout > 0 {
+		_ = a.wsConn.SetWriteDeadline(time.Time{})
+	}
+	return err
 }

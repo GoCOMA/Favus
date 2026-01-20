@@ -18,8 +18,17 @@ const (
 
 // Backward-compatibility for develop branch users of config.DefaultChunkSize (bytes)
 var DefaultChunkSize int64 = int64(defaultPartSizeMB) * 1024 * 1024
-var ChunksDir string = "./chunks"
+var ChunksDir string = defaultChunksDir()
 var LogFilePath string = "./favus.log"
+
+// defaultChunksDir returns ~/.favus/chunks/ path
+func defaultChunksDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = "."
+	}
+	return filepath.Join(home, ".favus", "chunks")
+}
 
 type Config struct {
 	Bucket         string `mapstructure:"bucket"`

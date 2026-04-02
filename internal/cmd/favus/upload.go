@@ -12,6 +12,7 @@ var (
 	bucket         string
 	objectKey      string
 	uploadCompress bool
+	autoTune       bool
 )
 
 var uploadCmd = &cobra.Command{
@@ -36,15 +37,38 @@ func runUpload(cmd *cobra.Command, _ []string) error {
 	validator := NewConfigValidator(conf).RequireBucket().RequireKey()
 	PromptForMissingConfig(validator)
 
-	// Prompt for upload parameters with proper defaults
+	// Validate local file early so we don't measure RTT needlessly
+	if err := ValidateFile(filePath); err != nil {
+		return err
+	}
+
+	// Create uploader (needed before prompts when --auto-tune is used)
+	up, err := CreateUploaderWithAWS(conf)
+	if err != nil {
+		return err
+	}
+
+	// Determine default part size and concurrency
 	defaultPartSize := conf.PartSizeMB
 	if defaultPartSize < MinPartSizeMB {
 		defaultPartSize = MinPartSizeMB
 	}
-
 	defaultConcurrency := conf.MaxConcurrency
 	if defaultConcurrency < MinConcurrency {
 		defaultConcurrency = MinConcurrency
+	}
+
+	if autoTune {
+		fmt.Println("🔍 Measuring RTT to S3...")
+		profile, err := up.MeasureNetwork(cmd.Context())
+		if err != nil {
+			fmt.Printf("⚠️  AutoTune failed (%v), using config defaults\n", err)
+		} else {
+			fmt.Printf("🔍 %s (RTT %.1fms) — recommended: %d workers, %dMB parts\n",
+				profile.Label, float64(profile.RTT.Milliseconds()), profile.Workers, profile.PartSizeMB)
+			defaultPartSize = profile.PartSizeMB
+			defaultConcurrency = profile.Workers
+		}
 	}
 
 	conf.PartSizeMB = PromptIntWithValidation("📦 Enter part size in MB", defaultPartSize, MinPartSizeMB)
@@ -55,17 +79,6 @@ func runUpload(cmd *cobra.Command, _ []string) error {
 		conf.Compress = uploadCompress
 	} else {
 		conf.Compress = PromptYesNoDefault("🗜  압축해서 업로드할까요?", conf.Compress)
-	}
-
-	// Validate local file
-	if err := ValidateFile(filePath); err != nil {
-		return err
-	}
-
-	// Create uploader and perform upload
-	up, err := CreateUploaderWithAWS(conf)
-	if err != nil {
-		return err
 	}
 
 	if err := up.UploadFile(filePath, conf.Key); err != nil {
@@ -83,5 +96,6 @@ func init() {
 	uploadCmd.Flags().StringVarP(&objectKey, "key", "k", "", "S3 object key (overrides config/ENV)")
 	uploadCmd.Flags().BoolVar(&uploadCompress, "compress", false, "Compress the file with gzip before uploading")
 	uploadCmd.Flags().Lookup("compress").NoOptDefVal = "true"
+	uploadCmd.Flags().BoolVar(&autoTune, "auto-tune", false, "Measure RTT to S3 and automatically set workers and part size")
 	_ = uploadCmd.MarkFlagRequired("file")
 }

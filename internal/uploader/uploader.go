@@ -261,6 +261,9 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 	if maxConcurrency <= 0 {
 		maxConcurrency = 1
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	jobs := make(chan chunker.Chunk, len(chunks))
 	results := make(chan s3types.CompletedPart, len(chunks))
 	errs := make(chan error, len(chunks))
@@ -268,10 +271,17 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 	for w := 1; w <= maxConcurrency; w++ {
 		go func(workerID int) {
 			for ch := range jobs {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
 				utils.Info(fmt.Sprintf("[Worker %d] Uploading part %d for file %s", workerID, ch.Index, uploadPath))
 
 				reader, err := fileChunker.GetChunkReader(ch)
 				if err != nil {
+					cancel()
 					errs <- fmt.Errorf("[Worker %d] failed to get chunk reader for part %d: %w", workerID, ch.Index, err)
 					return
 				}
@@ -294,7 +304,7 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 					})
 
 					var partErr error
-					uploadOutput, partErr = u.s3Client.UploadPart(context.Background(), &s3.UploadPartInput{
+					uploadOutput, partErr = u.s3Client.UploadPart(ctx, &s3.UploadPartInput{
 						Body:          pr,
 						Bucket:        &u.Config.Bucket,
 						Key:           &s3Key,
@@ -311,11 +321,13 @@ func (u *Uploader) UploadFile(filePath, s3Key string) error {
 				_ = reader.Close()
 
 				if err != nil {
+					cancel()
 					errs <- fmt.Errorf("[Worker %d] failed to upload part %d after retries: %w", workerID, ch.Index, err)
 					return
 				}
 
 				if uploadOutput.ETag == nil {
+					cancel()
 					errs <- fmt.Errorf("[Worker %d] ETag for part %d is nil", workerID, ch.Index)
 					return
 				}
